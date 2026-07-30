@@ -1,0 +1,125 @@
+// Film con IA — modelo de datos (SQLite via Prisma)
+// Los campos "array/objeto" se guardan como String JSON para máxima portabilidad
+// en SQLite; usar los helpers de src/lib/serialize.ts para (de)serializar.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id                String   @id @default(cuid())
+  title             String
+  idea              String   @default("")
+  logline           String   @default("")
+  synopsis          String   @default("")
+  genre             String   @default("")
+  tone              String   @default("")
+  language          String   @default("es")
+  aspectRatio       String   @default("16:9")
+  targetDurationSec Int      @default(60)
+  styleBible        String   @default("") // estilo visual, paleta, referencias
+  status            String   @default("draft")
+  scriptJson        String? // guion estructurado (JSON serializado)
+  scriptMarkdown    String? // render de solo lectura
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  characters Character[]
+  scenes     Scene[]
+  exports    Export[]
+}
+
+model Character {
+  id                   String   @id @default(cuid())
+  projectId            String
+  name                 String
+  role                 String   @default("")
+  canonicalDescription String   @default("") // apariencia fija (ancla de consistencia)
+  personality          String   @default("")
+  referenceImages      String   @default("[]") // JSON: [{path, kind, provider, prompt}]
+  locked               Boolean  @default(false)
+  notes                String   @default("")
+  order                Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Scene {
+  id           String   @id @default(cuid())
+  projectId    String
+  order        Int
+  heading      String   @default("")
+  summary      String   @default("")
+  characterIds String   @default("[]") // JSON: array de Character.id
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shots   Shot[]
+}
+
+model Shot {
+  id                String   @id @default(cuid())
+  sceneId           String
+  order             Int
+  actionDescription String   @default("")
+  cameraNotes       String   @default("")
+  dialogueOrVO      String   @default("")
+  characterIds      String   @default("[]") // JSON: array de Character.id
+  durationSec       Int      @default(8)
+  keyframePath      String?
+  keyframePrompt    String?
+  geminiPrompt      String? // prompt de video listo para pegar en Gemini
+  assignedAccountId String?
+  status            String   @default("planned") // planned|keyframe_ready|package_ready|generated|imported
+  videoPath         String?
+  notes             String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  scene   Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [assignedAccountId], references: [id])
+}
+
+model Account {
+  id         String   @id @default(cuid())
+  label      String
+  email      String   @default("")
+  dailyQuota Int      @default(3)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  shots  Shot[]
+  usages AccountUsage[]
+}
+
+model AccountUsage {
+  id        String @id @default(cuid())
+  accountId String
+  date      String // YYYY-MM-DD
+  count     Int    @default(0)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, date])
+}
+
+model Export {
+  id         String   @id @default(cuid())
+  projectId  String
+  status     String   @default("pending") // pending|running|done|error
+  settings   String   @default("{}") // JSON
+  outputPath String?
+  error      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
