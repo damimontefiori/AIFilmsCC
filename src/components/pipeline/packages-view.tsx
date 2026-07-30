@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Copy,
   Check,
@@ -9,6 +9,7 @@ import {
   Trash2,
   CircleCheck,
   RotateCcw,
+  RefreshCw,
   AlertCircle,
   Info,
   Layers,
@@ -49,21 +50,40 @@ export function PackagesView({
     return c[0]?.id ?? null;
   }, [accounts]);
 
+  const [refreshing, setRefreshing] = useState(false);
   const generated = shots.filter((s) => s.status === "generated" || s.status === "imported").length;
 
   function patchShot(shot: ShotDTO) {
     setShots((ss) => ss.map((s) => (s.id === shot.id ? shot : s)));
   }
 
+  async function refreshPrompts() {
+    setRefreshing(true);
+    try {
+      const res = await jsonFetch<{ shots: ShotDTO[] }>(
+        `/api/projects/${projectId}/shots/refresh-prompts`,
+        { method: "POST" },
+      );
+      setShots(res.shots);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <AccountsPanel accounts={accounts} setAccounts={setAccounts} />
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold">Paquetes por clip</h3>
-        <Badge tone={generated === shots.length && shots.length > 0 ? "success" : "default"}>
-          {generated}/{shots.length} generados
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={refreshPrompts} disabled={refreshing}>
+            {refreshing ? <Spinner /> : <RefreshCw className="h-3 w-3" />} Refrescar prompts
+          </Button>
+          <Badge tone={generated === shots.length && shots.length > 0 ? "success" : "default"}>
+            {generated}/{shots.length} generados
+          </Badge>
+        </div>
       </div>
 
       {shots.length === 0 ? (
@@ -217,6 +237,9 @@ function PackageCard({
   layers?: ShotLayers;
 }) {
   const [prompt, setPrompt] = useState(shot.geminiPrompt || "");
+  useEffect(() => {
+    setPrompt(shot.geminiPrompt || "");
+  }, [shot.geminiPrompt]);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [accountId, setAccountId] = useState(shot.assignedAccountId || suggestedAccountId || "");

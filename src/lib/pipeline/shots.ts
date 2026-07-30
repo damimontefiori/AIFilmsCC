@@ -232,8 +232,11 @@ export function buildGeminiVideoPrompt(params: {
     params.cameraNotes ? `Camera: ${params.cameraNotes}` : "",
     params.dialogueOrVO ? `Dialogue / VO: ${params.dialogueOrVO}` : "",
     style ? `Style: ${style}` : "",
-    "Family-friendly, cinematic tone (safe for Gemini's video policy).",
-    `Negative: no on-screen text, no subtitles, no watermark, do not change character identity, ${SAFE_NEGATIVES}.`,
+    "Cinematic, warm, family-friendly tone.",
+    // NOTA: NO enumerar términos prohibidos (gore, violence, nudity…) aquí:
+    // aunque vayan con "no", el filtro de la app de Gemini detecta esas
+    // palabras y RECHAZA el clip. La seguridad se aplica al generar el guion.
+    "Keep each character's identity consistent. No on-screen text, subtitles or watermarks.",
   ]
     .filter(Boolean)
     .join("\n");
