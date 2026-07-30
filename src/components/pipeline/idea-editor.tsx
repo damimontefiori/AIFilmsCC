@@ -5,18 +5,32 @@ import { useRouter } from "next/navigation";
 import { Sparkles, Save, Wand2, ArrowRight, AlertCircle } from "lucide-react";
 import type { ProjectDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
+import { LANGUAGES } from "@/lib/languages";
+import {
+  DEFAULT_SCRIPT_MODEL,
+  scriptModelById,
+} from "@/lib/pipeline/script-models";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Textarea, Select } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/misc";
+import { ScriptModelPicker } from "./script-model-picker";
 
-export function IdeaEditor({ project }: { project: ProjectDTO }) {
+export function IdeaEditor({
+  project,
+  defaultAiStudioKey,
+}: {
+  project: ProjectDTO;
+  defaultAiStudioKey: string;
+}) {
   const router = useRouter();
   const [form, setForm] = useState(project);
   const [saving, setSaving] = useState(false);
   const [refining, setRefining] = useState(false);
   const [auto, setAuto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [model, setModel] = useState(project.scriptModel || DEFAULT_SCRIPT_MODEL);
+  const [apiKey, setApiKey] = useState(defaultAiStudioKey);
 
   function set<K extends keyof ProjectDTO>(key: K, value: ProjectDTO[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -39,6 +53,7 @@ export function IdeaEditor({ project }: { project: ProjectDTO }) {
           logline: form.logline,
           synopsis: form.synopsis,
           styleBible: form.styleBible,
+          scriptModel: model,
         }),
       });
       router.refresh();
@@ -77,6 +92,11 @@ export function IdeaEditor({ project }: { project: ProjectDTO }) {
   }
 
   async function autopilot() {
+    const opt = scriptModelById(model);
+    if (opt?.needsApiKey && !apiKey.trim()) {
+      setError("El modelo del guion seleccionado requiere una API Key de AI Studio.");
+      return;
+    }
     setAuto(true);
     setError(null);
     try {
@@ -89,9 +109,16 @@ export function IdeaEditor({ project }: { project: ProjectDTO }) {
           language: form.language,
           targetDurationSec: Number(form.targetDurationSec),
           aspectRatio: form.aspectRatio,
+          scriptModel: model,
         }),
       });
-      await jsonFetch(`/api/projects/${project.id}/autopilot`, { method: "POST" });
+      await jsonFetch(`/api/projects/${project.id}/autopilot`, {
+        method: "POST",
+        body: JSON.stringify({
+          model,
+          apiKey: opt?.needsApiKey ? apiKey : undefined,
+        }),
+      });
       router.push(`/projects/${project.id}/script`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -103,7 +130,8 @@ export function IdeaEditor({ project }: { project: ProjectDTO }) {
   const hasConcept = Boolean(form.logline || form.synopsis || form.styleBible);
 
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
+    <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Idea y ajustes</CardTitle>
@@ -140,10 +168,11 @@ export function IdeaEditor({ project }: { project: ProjectDTO }) {
             <div>
               <Label>Idioma</Label>
               <Select value={form.language} onChange={(e) => set("language", e.target.value)}>
-                <option value="es">Español</option>
-                <option value="en">Inglés</option>
-                <option value="pt">Portugués</option>
-                <option value="fr">Francés</option>
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
               </Select>
             </div>
             <div>
@@ -239,6 +268,14 @@ export function IdeaEditor({ project }: { project: ProjectDTO }) {
           )}
         </CardContent>
       </Card>
+      </div>
+      <ScriptModelPicker
+        model={model}
+        setModel={setModel}
+        apiKey={apiKey}
+        setApiKey={setApiKey}
+        hint="Modelo para generar el guion. Lo usan «Auto-borrador» y el paso «Guion»."
+      />
     </div>
   );
 }

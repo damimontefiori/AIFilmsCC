@@ -15,12 +15,43 @@ export async function geminiGenerate(
   req: ImageRequest,
 ): Promise<ImageResult> {
   const parts: GeminiPart[] = [];
-  parts.push({ text: req.prompt });
+  const labeled = req.labeledReferences ?? [];
 
-  for (const img of req.referenceImages ?? []) {
+  if (req.baseImage) {
+    // MODO EDICIÓN/COMPOSITING: la imagen base (ambiente) va PRIMERO como
+    // lienzo; luego las referencias del/los personaje(s) a insertar; y al
+    // final la instrucción de composición (req.prompt).
     parts.push({
-      inlineData: { mimeType: img.mimeType, data: img.base64 },
+      inlineData: { mimeType: req.baseImage.mimeType, data: req.baseImage.base64 },
     });
+    for (const grp of labeled) {
+      parts.push({ text: `PERSON TO INSERT — ${grp.label} (match this exact person):` });
+      for (const img of grp.images) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+      }
+    }
+    parts.push({ text: req.prompt });
+  } else if (labeled.length > 0) {
+    // Composición con referencias ETIQUETADAS por personaje para que el modelo
+    // no mezcle ni reasigne identidades cuando hay varios personajes.
+    parts.push({
+      text:
+        "You are compositing ONE cinematic film still. Below are labeled character references. " +
+        "Reproduce each person's face, hair and wardrobe EXACTLY as in their labeled reference. " +
+        "Do not swap, blend or mix identities between people.",
+    });
+    for (const grp of labeled) {
+      parts.push({ text: `REFERENCE — ${grp.label} (match this exact person):` });
+      for (const img of grp.images) {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+      }
+    }
+    parts.push({ text: req.prompt });
+  } else {
+    parts.push({ text: req.prompt });
+    for (const img of req.referenceImages ?? []) {
+      parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+    }
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent`;

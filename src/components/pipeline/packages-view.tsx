@@ -11,6 +11,7 @@ import {
   RotateCcw,
   AlertCircle,
   Info,
+  Layers,
 } from "lucide-react";
 import type { ShotDTO, AccountDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
@@ -23,14 +24,20 @@ function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+export type ShotLayers = {
+  characters: { name: string; path: string }[];
+};
+
 export function PackagesView({
   projectId,
   initialShots,
   initialAccounts,
+  layers,
 }: {
   projectId: string;
   initialShots: ShotDTO[];
   initialAccounts: AccountDTO[];
+  layers: Record<string, ShotLayers>;
 }) {
   const [shots, setShots] = useState<ShotDTO[]>(initialShots);
   const [accounts, setAccounts] = useState<AccountDTO[]>(initialAccounts);
@@ -77,6 +84,7 @@ export function PackagesView({
               suggestedAccountId={suggestedAccountId}
               onPatchShot={patchShot}
               onAccounts={setAccounts}
+              layers={layers[shot.id]}
             />
           ))}
         </div>
@@ -197,6 +205,7 @@ function PackageCard({
   suggestedAccountId,
   onPatchShot,
   onAccounts,
+  layers,
 }: {
   projectId: string;
   shot: ShotDTO;
@@ -205,6 +214,7 @@ function PackageCard({
   suggestedAccountId: string | null;
   onPatchShot: (s: ShotDTO) => void;
   onAccounts: (a: AccountDTO[]) => void;
+  layers?: ShotLayers;
 }) {
   const [prompt, setPrompt] = useState(shot.geminiPrompt || "");
   const [copied, setCopied] = useState(false);
@@ -213,6 +223,8 @@ function PackageCard({
   const [error, setError] = useState<string | null>(null);
 
   const isGenerated = shot.status === "generated" || shot.status === "imported";
+  const hasEnvLayer =
+    !!shot.environmentPath && shot.environmentPath !== shot.keyframePath;
 
   async function copy() {
     await navigator.clipboard.writeText(prompt).catch(() => {});
@@ -285,6 +297,51 @@ function PackageCard({
                 <Download className="h-3 w-3" /> Descargar keyframe
               </Button>
             </a>
+          )}
+
+          {(hasEnvLayer || (layers?.characters.length ?? 0) > 0) && (
+            <div className="rounded-md border border-dashed border-border p-2">
+              <p className="mb-1 flex items-center gap-1 text-[10px] text-muted">
+                <Layers className="h-3 w-3" /> Capas para Gemini Omni (puedes enviar varias imágenes)
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {hasEnvLayer && (
+                  <a
+                    href={mediaUrl(shot.environmentPath!)}
+                    download
+                    title="Ambiente (capa base)"
+                    className="group relative"
+                  >
+                    <img
+                      src={mediaUrl(shot.environmentPath!)}
+                      alt="ambiente"
+                      className="h-12 w-16 rounded border border-border object-cover"
+                    />
+                    <span className="absolute inset-x-0 bottom-0 bg-background/70 text-center text-[8px]">
+                      ambiente
+                    </span>
+                  </a>
+                )}
+                {layers?.characters.map((c) => (
+                  <a
+                    key={c.path}
+                    href={mediaUrl(c.path)}
+                    download
+                    title={`Referencia: ${c.name}`}
+                    className="group relative"
+                  >
+                    <img
+                      src={mediaUrl(c.path)}
+                      alt={c.name}
+                      className="h-12 w-16 rounded border border-border object-cover"
+                    />
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-background/70 px-0.5 text-center text-[8px]">
+                      {c.name}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 

@@ -20,10 +20,15 @@ import {
   type ScriptDoc,
   type ScriptScene,
 } from "@/lib/pipeline/types";
+import {
+  scriptModelById,
+  DEFAULT_SCRIPT_MODEL,
+} from "@/lib/pipeline/script-models";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/field";
 import { Badge, Spinner } from "@/components/ui/misc";
+import { ScriptModelPicker } from "./script-model-picker";
 
 function parseDoc(json: string | null): ScriptDoc | null {
   if (!json) return null;
@@ -34,13 +39,21 @@ function parseDoc(json: string | null): ScriptDoc | null {
   }
 }
 
-export function ScriptEditor({ project }: { project: ProjectDTO }) {
+export function ScriptEditor({
+  project,
+  defaultAiStudioKey,
+}: {
+  project: ProjectDTO;
+  defaultAiStudioKey: string;
+}) {
   const router = useRouter();
   const [doc, setDoc] = useState<ScriptDoc | null>(parseDoc(project.scriptJson));
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [model, setModel] = useState(project.scriptModel || DEFAULT_SCRIPT_MODEL);
+  const [apiKey, setApiKey] = useState(defaultAiStudioKey);
 
   function mutate(next: ScriptDoc) {
     setDoc(next);
@@ -108,12 +121,23 @@ export function ScriptEditor({ project }: { project: ProjectDTO }) {
   }
 
   async function generate() {
+    const opt = scriptModelById(model);
+    if (opt?.needsApiKey && !apiKey.trim()) {
+      setError("Este modelo requiere una API Key de AI Studio.");
+      return;
+    }
     setGenerating(true);
     setError(null);
     try {
       const res = await jsonFetch<{ doc: ScriptDoc }>(
         `/api/projects/${project.id}/script`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            model,
+            apiKey: opt?.needsApiKey ? apiKey : undefined,
+          }),
+        },
       );
       setDoc(res.doc);
       setDirty(false);
@@ -150,31 +174,35 @@ export function ScriptEditor({ project }: { project: ProjectDTO }) {
 
   if (!doc) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
-          <Film className="h-10 w-10 text-primary" />
-          <div>
-            <p className="font-medium">Aún no hay guion</p>
-            <p className="text-sm text-muted">
-              Genera un guion estructurado a partir del concepto.
-            </p>
-          </div>
-          <Button onClick={generate} disabled={busy}>
-            {generating ? <Spinner /> : <Wand2 className="h-4 w-4" />} Generar guion
-          </Button>
-          {error && (
-            <div className="flex items-start gap-2 rounded-md bg-danger/10 p-3 text-sm text-danger">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
+      <div className="space-y-4">
+        <ScriptModelPicker model={model} setModel={setModel} apiKey={apiKey} setApiKey={setApiKey} />
+        <Card>
+          <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
+            <Film className="h-10 w-10 text-primary" />
+            <div>
+              <p className="font-medium">Aún no hay guion</p>
+              <p className="text-sm text-muted">
+                Genera un guion estructurado a partir del concepto.
+              </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <Button onClick={generate} disabled={busy}>
+              {generating ? <Spinner /> : <Wand2 className="h-4 w-4" />} Generar guion
+            </Button>
+            {error && (
+              <div className="flex items-start gap-2 rounded-md bg-danger/10 p-3 text-sm text-danger">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      <ScriptModelPicker model={model} setModel={setModel} apiKey={apiKey} setApiKey={setApiKey} />
       <div className="sticky top-14 z-30 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius)] border border-border bg-surface/90 p-2 backdrop-blur">
         <div className="flex items-center gap-2 px-2 text-sm">
           <Badge>{doc.scenes.length} escenas</Badge>

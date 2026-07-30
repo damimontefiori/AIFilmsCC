@@ -15,7 +15,7 @@ import type { SceneDTO, ShotDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input, Textarea, Label } from "@/components/ui/field";
+import { Input, Textarea, Label, Select } from "@/components/ui/field";
 import { Badge, Spinner } from "@/components/ui/misc";
 
 function mediaUrl(path: string) {
@@ -160,8 +160,10 @@ function ShotRow({
 }) {
   const [local, setLocal] = useState(shot);
   const [saving, setSaving] = useState(false);
-  const [genning, setGenning] = useState(false);
+  const [genning, setGenning] = useState<null | "keyframe" | "env">(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"direct" | "composite">("direct");
+  const hasChars = local.characters.length > 0;
 
   function set<K extends keyof ShotDTO>(k: K, v: ShotDTO[K]) {
     setLocal((s) => ({ ...s, [k]: v }));
@@ -192,20 +194,23 @@ function ShotRow({
     }
   }
 
-  async function generateKeyframe() {
-    setGenning(true);
+  async function generateKeyframe(regenEnvironment = false) {
+    setGenning(regenEnvironment ? "env" : "keyframe");
     setError(null);
     try {
       const res = await jsonFetch<{ shot: ShotDTO }>(
         `/api/projects/${projectId}/shots/${shot.id}/keyframe`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({ mode, regenEnvironment }),
+        },
       );
       setLocal(res.shot);
       onPatch(res.shot);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setGenning(false);
+      setGenning(null);
     }
   }
 
@@ -238,16 +243,64 @@ function ShotRow({
               </div>
             )}
           </div>
+
+          {hasChars && (
+            <Select
+              className="h-8 text-xs"
+              value={mode}
+              onChange={(e) => setMode(e.target.value as "direct" | "composite")}
+              title="Directo = una generación. Componer = ambiente + personaje por capas (más fiable)."
+            >
+              <option value="direct">Modo: Directo</option>
+              <option value="composite">Modo: Componer capas</option>
+            </Select>
+          )}
+
           <Button
             variant="outline"
             size="sm"
             className="w-full"
-            onClick={generateKeyframe}
-            disabled={genning}
+            onClick={() => generateKeyframe(false)}
+            disabled={genning !== null}
           >
-            {genning ? <Spinner /> : <ImageIcon className="h-3 w-3" />}
-            {local.keyframePath ? "Regenerar keyframe" : "Generar keyframe"}
+            {genning === "keyframe" ? <Spinner /> : <ImageIcon className="h-3 w-3" />}
+            {mode === "composite" && hasChars
+              ? local.keyframePath
+                ? "Recomponer"
+                : "Componer keyframe"
+              : local.keyframePath
+                ? "Regenerar keyframe"
+                : "Generar keyframe"}
           </Button>
+
+          {mode === "composite" && hasChars && (
+            <div className="space-y-1 rounded-md border border-dashed border-border p-1.5">
+              {local.environmentPath && local.environmentPath !== local.keyframePath ? (
+                <div className="overflow-hidden rounded">
+                  <img
+                    src={mediaUrl(local.environmentPath)}
+                    alt="ambiente"
+                    className="aspect-video w-full object-cover"
+                  />
+                  <div className="px-1 pt-0.5 text-[10px] text-muted">Ambiente (capa base)</div>
+                </div>
+              ) : (
+                <p className="px-1 text-[10px] text-muted">
+                  Genera el ambiente y compón el personaje encima.
+                </p>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => generateKeyframe(true)}
+                disabled={genning !== null}
+              >
+                {genning === "env" ? <Spinner /> : <RefreshCw className="h-3 w-3" />} Regenerar ambiente
+              </Button>
+            </div>
+          )}
+
           {local.characters.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {local.characters.map((c) => (
@@ -276,7 +329,7 @@ function ShotRow({
               <Input
                 type="number"
                 min={2}
-                max={8}
+                max={10}
                 value={local.durationSec}
                 onChange={(e) => set("durationSec", Number(e.target.value))}
               />

@@ -13,6 +13,7 @@ type ShotRow = {
   characterIds: string;
   durationSec: number;
   keyframePath: string | null;
+  environmentPath: string | null;
   keyframePrompt: string | null;
   geminiPrompt: string | null;
   assignedAccountId: string | null;
@@ -32,6 +33,7 @@ export function toShotDTO(s: ShotRow): ShotDTO {
     characters: parseJson<string[]>(s.characterIds, []),
     durationSec: s.durationSec,
     keyframePath: s.keyframePath,
+    environmentPath: s.environmentPath,
     keyframePrompt: s.keyframePrompt,
     geminiPrompt: s.geminiPrompt,
     assignedAccountId: s.assignedAccountId,
@@ -87,7 +89,7 @@ export async function replaceBreakdown(
       },
     });
     for (const sh of sc.shots) {
-      const durationSec = Math.min(8, Math.max(2, Math.round(sh.durationSec || 8)));
+      const durationSec = Math.min(10, Math.max(2, Math.round(sh.durationSec || 10)));
       await prisma.shot.create({
         data: {
           sceneId: scene.id,

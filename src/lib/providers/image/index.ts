@@ -1,4 +1,5 @@
 import { geminiImageConfigs, fluxImageConfigs } from "@/lib/config";
+import { withRetry } from "@/lib/utils";
 import { geminiGenerate } from "./gemini";
 import { fluxGenerate } from "./flux";
 import type { ImageRequest, ImageResult } from "./types";
@@ -15,7 +16,11 @@ export async function generateImage(req: ImageRequest): Promise<ImageResult> {
 
   for (const cfg of geminiImageConfigs()) {
     try {
-      return await geminiGenerate(cfg, req);
+      // Reintenta 2x en la misma clave antes de degradar a la siguiente/FLUX.
+      return await withRetry(() => geminiGenerate(cfg, req), {
+        attempts: 2,
+        baseDelayMs: 1000,
+      });
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }

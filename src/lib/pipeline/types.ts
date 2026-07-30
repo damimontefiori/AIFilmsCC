@@ -52,9 +52,9 @@ export const ScriptDocSchema = z.object({
 });
 export type ScriptDoc = z.infer<typeof ScriptDocSchema>;
 
-/** Nº aproximado de clips (~8s cada uno) para una duración objetivo. */
+/** Nº aproximado de clips (~10s cada uno) para una duración objetivo. */
 export function estimateClipCount(targetDurationSec: number): number {
-  return Math.max(3, Math.round(targetDurationSec / 8));
+  return Math.max(3, Math.round(targetDurationSec / 10));
 }
 
 /** Renderiza el guion estructurado a markdown legible. */

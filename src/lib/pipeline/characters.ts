@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { generateStructured, extractJson } from "@/lib/providers/text";
+import { promptLangName } from "@/lib/languages";
+import { withRetry } from "@/lib/utils";
+import { SAFE_NEGATIVES, REALISM_DIRECTIVE } from "./safety";
 
 export const ExtractedCharacterSchema = z.object({
   name: z.string().default(""),
@@ -8,13 +11,6 @@ export const ExtractedCharacterSchema = z.object({
   personality: z.string().default(""),
 });
 export type ExtractedCharacter = z.infer<typeof ExtractedCharacterSchema>;
-
-const LANG_NAME: Record<string, string> = {
-  es: "español",
-  en: "inglés",
-  pt: "portugués",
-  fr: "francés",
-};
 
 /**
  * Extrae los personajes del guion con descripciones canónicas MUY visuales
@@ -25,7 +21,7 @@ export async function extractCharacters(input: {
   styleBible: string;
   language: string;
 }): Promise<ExtractedCharacter[]> {
-  const lang = LANG_NAME[input.language] || "español";
+  const lang = promptLangName(input.language);
   const system = [
     "Eres un director de casting y diseñador de personajes de cine.",
     `Escribe los textos en ${lang}.`,
@@ -39,6 +35,8 @@ export async function extractCharacters(input: {
     "estatura, cabello (color y estilo), rasgos faciales distintivos, marcas o cicatrices,",
     "y VESTUARIO concreto (prendas, colores, materiales, accesorios). Sé específico y fijo:",
     "esta descripción debe permitir dibujar al personaje IGUAL en cada plano.",
+    "IMPORTANTE: haz que los personajes sean VISUALMENTE DISTINTOS entre sí (diferente color/estilo de cabello,",
+    "silueta y colores de vestuario) para que se distingan a simple vista en planos de grupo y el modelo no los confunda.",
     "",
     `Estilo visual del film (para coherencia): ${input.styleBible}`,
     "",
@@ -49,18 +47,21 @@ export async function extractCharacters(input: {
     input.scriptMarkdown.slice(0, 12000),
   ].join("\n");
 
-  const { text } = await generateStructured({
-    system,
-    user,
-    jsonMode: true,
-    maxTokens: 4000,
-  });
-
-  const raw = extractJson<{ characters?: unknown[] }>(text);
-  const list = Array.isArray(raw?.characters) ? raw.characters : [];
-  return list
-    .map((c) => ExtractedCharacterSchema.parse(c))
-    .filter((c) => c.name.trim() !== "");
+  return withRetry(async () => {
+    const { text } = await generateStructured({
+      system,
+      user,
+      jsonMode: true,
+      maxTokens: 4000,
+    });
+    const raw = extractJson<{ characters?: unknown[] }>(text);
+    const list = Array.isArray(raw?.characters) ? raw.characters : [];
+    const parsed = list
+      .map((c) => ExtractedCharacterSchema.parse(c))
+      .filter((c) => c.name.trim() !== "");
+    if (parsed.length === 0) throw new Error("No se extrajo ningún personaje");
+    return parsed;
+  }, { attempts: 3 });
 }
 
 export type ReferenceKind = "portrait" | "full_body" | "three_quarter";
@@ -95,6 +96,8 @@ export function buildReferencePrompt(params: {
     "",
     `Character description: ${params.canonicalDescription}`,
     params.styleBible ? `Overall visual style: ${params.styleBible}` : "",
+    REALISM_DIRECTIVE,
+    `Family-friendly, ${SAFE_NEGATIVES}.`,
   ];
   return parts.filter(Boolean).join("\n");
 }

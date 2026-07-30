@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Wand2, AlertCircle } from "lucide-react";
 import { jsonFetch } from "@/lib/api-client";
+import { LANGUAGES } from "@/lib/languages";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Textarea, Select } from "@/components/ui/field";
@@ -71,10 +72,11 @@ export function NewProjectForm() {
           <div>
             <Label>Idioma</Label>
             <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
-              <option value="es">Español</option>
-              <option value="en">Inglés</option>
-              <option value="pt">Portugués</option>
-              <option value="fr">Francés</option>
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
             </Select>
           </div>
           <div>

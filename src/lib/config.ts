@@ -117,6 +117,26 @@ export function fluxImageConfigs(): FluxImageConfig[] {
   return configs;
 }
 
+export type AiStudioConfig = {
+  apiKey: string;
+  model: string;
+};
+
+/** Config de Gemini AI Studio (nivel gratuito) para el guion. */
+export function aiStudioConfig(overrideKey?: string): AiStudioConfig | null {
+  const apiKey = (overrideKey && overrideKey.trim()) || env("AISTUDIO_API_KEY");
+  if (!apiKey) return null;
+  return {
+    apiKey,
+    model: env("AISTUDIO_SCRIPT_MODEL") || "gemini-3.6-flash",
+  };
+}
+
+/** Clave por defecto de AI Studio, para autocompletar el campo en la UI. */
+export function defaultAiStudioKey(): string {
+  return env("AISTUDIO_API_KEY") || "";
+}
+
 export function ffmpegBin(): string {
   return env("FFMPEG_PATH") || "ffmpeg";
 }

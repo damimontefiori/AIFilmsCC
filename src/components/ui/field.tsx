@@ -1,12 +1,23 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+// Pide a los gestores de contraseñas (LastPass, 1Password, Dashlane…) que NO
+// inyecten iconos/DOM en estos campos: no son campos de login. Evita el
+// mismatch de hidratación que provoca su inyección antes de que React hidrate.
+const NO_PW_MANAGER = {
+  "data-lpignore": "true",
+  "data-1p-ignore": "true",
+  "data-form-type": "other",
+} as const;
+
 export const Input = React.forwardRef<
   HTMLInputElement,
   React.InputHTMLAttributes<HTMLInputElement>
 >(({ className, ...props }, ref) => (
   <input
     ref={ref}
+    suppressHydrationWarning
+    {...NO_PW_MANAGER}
     className={cn(
       "h-10 w-full rounded-[var(--radius)] border border-border bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-50",
       className,
@@ -22,6 +33,8 @@ export const Textarea = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <textarea
     ref={ref}
+    suppressHydrationWarning
+    {...NO_PW_MANAGER}
     className={cn(
       "min-h-24 w-full rounded-[var(--radius)] border border-border bg-surface-2 px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-50",
       className,
@@ -49,6 +62,8 @@ export const Select = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <select
     ref={ref}
+    suppressHydrationWarning
+    {...NO_PW_MANAGER}
     className={cn(
       "h-10 w-full rounded-[var(--radius)] border border-border bg-surface-2 px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-50",
       className,

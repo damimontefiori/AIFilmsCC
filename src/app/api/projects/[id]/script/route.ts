@@ -10,26 +10,35 @@ export const maxDuration = 900;
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(_req: Request, { params }: Ctx) {
+export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const project = await getProject(id);
   if (!project) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
+  const body = await req.json().catch(() => ({}));
+  const model: string =
+    (typeof body.model === "string" && body.model) || project.scriptModel;
+  const apiKey: string | undefined =
+    typeof body.apiKey === "string" ? body.apiKey : undefined;
   try {
-    const doc = await generateScript({
-      idea: project.idea,
-      title: project.title,
-      logline: project.logline,
-      synopsis: project.synopsis,
-      genre: project.genre,
-      tone: project.tone,
-      styleBible: project.styleBible,
-      language: project.language,
-      targetDurationSec: project.targetDurationSec,
-    });
+    const doc = await generateScript(
+      {
+        idea: project.idea,
+        title: project.title,
+        logline: project.logline,
+        synopsis: project.synopsis,
+        genre: project.genre,
+        tone: project.tone,
+        styleBible: project.styleBible,
+        language: project.language,
+        targetDurationSec: project.targetDurationSec,
+      },
+      { model, apiKey },
+    );
     const markdown = scriptToMarkdown(doc);
     const updated = await updateProject(id, {
+      scriptModel: model,
       scriptJson: JSON.stringify(doc),
       scriptMarkdown: markdown,
       // Sincroniza metadatos que el guion pudo refinar.

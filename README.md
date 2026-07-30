@@ -53,12 +53,19 @@ ffmpeg; incluye pruebas en vivo).
 
 | Tarea | Modelo | Slot |
 |---|---|---|
-| Guion (creativo) | `gpt-5.4-pro` (razonamiento, Responses API) | FOUNDRY_NARRATIVE |
+| Guion (creativo) | `gpt-5.4-pro` (por defecto) **o** `gemini-3.6-flash` (AI Studio) | FOUNDRY_NARRATIVE / AISTUDIO |
 | Concepto / personajes / planos (JSON) | `gpt-4.1` (chat) | ACCENTURE→STUDENTS |
 | Imágenes (refs + keyframes) | `gemini-2.5-flash-image` (+ FLUX.2-pro fallback) | GEMINI free→paid |
 
 > `gpt-5.4-pro` puede tardar **hasta ~15 min** en responder; no es un fallo.
 > Por eso solo se usa para el guion; el resto usa `gpt-4.1` (segundos).
+
+**Selector de modelo del guion:** puedes elegir el modelo **antes de generar**
+(en el paso «Idea», junto a Auto-borrador) y también en el paso «Guion». Por
+defecto usa `gpt-5.4-pro` (Azure). Si eliges `gemini-3.6-flash` (AI Studio,
+nivel gratuito, ~14 s) aparece un campo de **API Key** autocompletado desde
+`AISTUDIO_API_KEY` del `.env.local` (editable). La elección se guarda por
+proyecto y la respetan tanto **Auto-borrador** como la generación del guion.
 
 ## Stack
 
@@ -77,5 +84,12 @@ ffmpeg. Una sola app full-stack.
   montaje deja un hueco para una pista de audio opcional en el futuro.
 - La generación de video es **manual/externa**; la app no llama a ninguna API de
   video, solo arma paquetes e ingiere los `.mp4` resultantes.
+- Los planos se dimensionan a **~10 s** (duración por defecto de los clips de
+  Gemini Omni), configurable por plano (2–10 s).
+- **Política de video de Gemini:** los prompts de guion, planos y video se
+  generan con directrices para cumplir la política de Gemini (contenido apto,
+  sin violencia gráfica, contenido sexual, actos peligrosos ni odio), reduciendo
+  los rechazos al generar los clips. Si aun así Gemini rechaza un clip, suaviza
+  la descripción del plano.
 - El montaje normaliza cada clip (resolución/fps del proyecto, audio estéreo
   48 kHz; añade silencio si el clip no trae audio) y concatena con ffmpeg.

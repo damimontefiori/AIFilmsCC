@@ -19,6 +19,7 @@ const EDITABLE = new Set([
   "targetDurationSec",
   "styleBible",
   "status",
+  "scriptModel",
   "scriptJson",
   "scriptMarkdown",
 ]);

@@ -26,6 +26,7 @@ export type ShotDTO = {
   characters: string[];
   durationSec: number;
   keyframePath: string | null;
+  environmentPath: string | null;
   keyframePrompt: string | null;
   geminiPrompt: string | null;
   assignedAccountId: string | null;
@@ -66,6 +67,7 @@ export type ProjectDTO = {
   targetDurationSec: number;
   styleBible: string;
   status: string;
+  scriptModel: string;
   scriptJson: string | null;
   scriptMarkdown: string | null;
 };
@@ -83,6 +85,7 @@ type ProjectLike = {
   targetDurationSec: number;
   styleBible: string;
   status: string;
+  scriptModel: string;
   scriptJson: string | null;
   scriptMarkdown: string | null;
 };
@@ -101,6 +104,7 @@ export function toProjectDTO(p: ProjectLike): ProjectDTO {
     targetDurationSec: p.targetDurationSec,
     styleBible: p.styleBible,
     status: p.status,
+    scriptModel: p.scriptModel,
     scriptJson: p.scriptJson,
     scriptMarkdown: p.scriptMarkdown,
   };

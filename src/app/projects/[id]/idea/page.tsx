@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { toProjectDTO } from "@/lib/dto";
+import { defaultAiStudioKey } from "@/lib/config";
 import { IdeaEditor } from "@/components/pipeline/idea-editor";
 
 export default async function IdeaPage({
@@ -11,5 +12,10 @@ export default async function IdeaPage({
   const { id } = await params;
   const project = await getProject(id);
   if (!project) notFound();
-  return <IdeaEditor project={toProjectDTO(project)} />;
+  return (
+    <IdeaEditor
+      project={toProjectDTO(project)}
+      defaultAiStudioKey={defaultAiStudioKey()}
+    />
+  );
 }

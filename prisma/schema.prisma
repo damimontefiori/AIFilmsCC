@@ -24,6 +24,7 @@ model Project {
   targetDurationSec Int      @default(60)
   styleBible        String   @default("") // estilo visual, paleta, referencias
   status            String   @default("draft")
+  scriptModel       String   @default("gpt-5.4-pro") // modelo elegido para el guion
   scriptJson        String? // guion estructurado (JSON serializado)
   scriptMarkdown    String? // render de solo lectura
   createdAt         DateTime @default(now())
@@ -73,8 +74,9 @@ model Shot {
   cameraNotes       String   @default("")
   dialogueOrVO      String   @default("")
   characterIds      String   @default("[]") // JSON: array de Character.id
-  durationSec       Int      @default(8)
+  durationSec       Int      @default(10)
   keyframePath      String?
+  environmentPath   String? // plate de ambiente (sin personajes) para compositing
   keyframePrompt    String?
   geminiPrompt      String? // prompt de video listo para pegar en Gemini
   assignedAccountId String?
