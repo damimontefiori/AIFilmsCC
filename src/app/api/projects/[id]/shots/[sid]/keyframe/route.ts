@@ -7,7 +7,7 @@ import { buildKeyframePrompt, buildCompositePrompt } from "@/lib/pipeline/shots"
 import { generateImage, type InputImage } from "@/lib/providers/image";
 import { saveBase64Image, readMediaBase64 } from "@/lib/media/store";
 import { fromRelative } from "@/lib/paths";
-import { matchCharacter } from "@/lib/match-characters";
+import { matchCharacter, matchLocationForScene } from "@/lib/match-characters";
 import { promises as fs } from "node:fs";
 
 export const runtime = "nodejs";
@@ -82,9 +82,25 @@ export async function POST(req: Request, { params }: Ctx) {
     let provider: string;
     let environmentPath: string | null = shot.environmentPath;
 
+    // ¿La escena tiene una LOCACIÓN con imagen de ambiente reutilizable?
+    const locations = await prisma.location.findMany({ where: { projectId: id } });
+    const location = matchLocationForScene(
+      `${scene?.heading || ""} ${scene?.summary || ""}`,
+      locations,
+    );
+    const ownsEnv = (p: string | null) => !!p && p.includes(`${sid}-env-`);
+
     if (doComposite) {
-      // ── Compositing por capas: 1) ambiente vacío, 2) insertar personaje(s) ──
-      if (!environmentPath || regenEnvironment) {
+      // ── Compositing por capas: 1) ambiente, 2) insertar personaje(s) ──
+      if (location?.imagePath) {
+        // Ambiente COMPARTIDO de la locación → entorno/objetos consistentes
+        // entre todos los planos del mismo lugar.
+        if (ownsEnv(environmentPath) && environmentPath !== location.imagePath) {
+          await rmRel(environmentPath); // limpia un plate propio anterior
+        }
+        environmentPath = location.imagePath;
+      } else if (!environmentPath || regenEnvironment || !ownsEnv(environmentPath)) {
+        // Sin locación: genera un plate de ambiente propio del plano.
         const envPrompt = buildKeyframePrompt({
           sceneHeading: scene?.heading || "",
           sceneSummary: scene?.summary || "",
@@ -99,12 +115,12 @@ export async function POST(req: Request, { params }: Ctx) {
         });
         const envResult = await generateImage({ prompt: envPrompt, aspectRatio: project.aspectRatio });
         const newEnv = await saveBase64Image(id, "keyframes", `${sid}-env-${Date.now()}`, envResult.base64, envResult.mimeType);
-        if (environmentPath && environmentPath !== newEnv) await rmRel(environmentPath);
+        if (ownsEnv(environmentPath) && environmentPath !== newEnv) await rmRel(environmentPath);
         environmentPath = newEnv;
       }
 
       const envData = await readMediaBase64(environmentPath);
-      if (!envData) throw new Error("No se pudo leer el plate de ambiente");
+      if (!envData) throw new Error("No se pudo leer el ambiente");
 
       const compPrompt = buildCompositePrompt({
         characterDescriptions: descriptions,

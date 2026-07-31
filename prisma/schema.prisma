@@ -31,8 +31,24 @@ model Project {
   updatedAt         DateTime @updatedAt
 
   characters Character[]
+  locations  Location[]
   scenes     Scene[]
   exports    Export[]
+}
+
+model Location {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String   @default("") // descripción visual del ambiente + objetos
+  imagePath   String? // imagen canónica del ambiente (sin personas), reutilizable
+  imagePrompt String?
+  locked      Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model Character {

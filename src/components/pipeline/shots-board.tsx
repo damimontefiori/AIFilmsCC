@@ -181,7 +181,6 @@ function ShotRow({
             actionDescription: local.actionDescription,
             cameraNotes: local.cameraNotes,
             dialogueOrVO: local.dialogueOrVO,
-            durationSec: Number(local.durationSec),
           }),
         },
       );
@@ -319,21 +318,12 @@ function ShotRow({
               onChange={(e) => set("actionDescription", e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label>Cámara</Label>
-              <Input value={local.cameraNotes} onChange={(e) => set("cameraNotes", e.target.value)} />
-            </div>
-            <div>
-              <Label>Duración (s)</Label>
-              <Input
-                type="number"
-                min={2}
-                max={10}
-                value={local.durationSec}
-                onChange={(e) => set("durationSec", Number(e.target.value))}
-              />
-            </div>
+          <div>
+            <Label>Cámara</Label>
+            <Input value={local.cameraNotes} onChange={(e) => set("cameraNotes", e.target.value)} />
+            <p className="mt-1 text-[11px] text-muted">
+              Duración de clip: {local.durationSec}s (fija — Gemini Omni genera ~10s).
+            </p>
           </div>
           <div>
             <Label>Diálogo / voz en off</Label>

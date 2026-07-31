@@ -16,6 +16,16 @@ export type CharacterDTO = {
   order: number;
 };
 
+export type LocationDTO = {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string;
+  imagePath: string | null;
+  locked: boolean;
+  order: number;
+};
+
 export type ShotDTO = {
   id: string;
   sceneId: string;

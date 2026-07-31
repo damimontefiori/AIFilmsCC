@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getProject } from "@/lib/projects";
 import { getShotsFlat } from "@/lib/shots";
-import { buildGeminiVideoPrompt } from "@/lib/pipeline/shots";
+import { buildGeminiVideoPrompt, CLIP_SECONDS } from "@/lib/pipeline/shots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,13 +25,17 @@ export async function POST(_req: Request, { params }: Ctx) {
   for (const scene of scenes) {
     for (const shot of scene.shots) {
       const geminiPrompt = buildGeminiVideoPrompt({
-        durationSec: shot.durationSec,
         actionDescription: shot.actionDescription,
         cameraNotes: shot.cameraNotes,
         dialogueOrVO: shot.dialogueOrVO,
         styleBible: project.styleBible,
+        language: project.language,
       });
-      await prisma.shot.update({ where: { id: shot.id }, data: { geminiPrompt } });
+      // Normaliza la duración a la fija de Gemini Omni (~10s).
+      await prisma.shot.update({
+        where: { id: shot.id },
+        data: { geminiPrompt, durationSec: CLIP_SECONDS },
+      });
       updated++;
     }
   }

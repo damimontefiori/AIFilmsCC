@@ -1,7 +1,11 @@
 import { prisma } from "@/lib/db";
 import { parseJson, toJson } from "@/lib/serialize";
 import type { SceneDTO, ShotDTO } from "@/lib/dto";
-import { buildGeminiVideoPrompt, type BreakdownScene } from "@/lib/pipeline/shots";
+import {
+  buildGeminiVideoPrompt,
+  CLIP_SECONDS,
+  type BreakdownScene,
+} from "@/lib/pipeline/shots";
 
 type ShotRow = {
   id: string;
@@ -73,6 +77,7 @@ export async function replaceBreakdown(
   projectId: string,
   breakdown: BreakdownScene[],
   styleBible: string,
+  language: string,
 ): Promise<void> {
   await prisma.scene.deleteMany({ where: { projectId } });
   let globalShotOrder = 0;
@@ -89,7 +94,6 @@ export async function replaceBreakdown(
       },
     });
     for (const sh of sc.shots) {
-      const durationSec = Math.min(10, Math.max(2, Math.round(sh.durationSec || 10)));
       await prisma.shot.create({
         data: {
           sceneId: scene.id,
@@ -98,14 +102,15 @@ export async function replaceBreakdown(
           cameraNotes: sh.cameraNotes,
           dialogueOrVO: sh.dialogueOrVO,
           characterIds: toJson(sh.characters),
-          durationSec,
+          // Duración FIJA: Gemini Omni siempre genera ~10s.
+          durationSec: CLIP_SECONDS,
           // Prompt de video listo desde el inicio (editable después).
           geminiPrompt: buildGeminiVideoPrompt({
-            durationSec,
             actionDescription: sh.actionDescription,
             cameraNotes: sh.cameraNotes,
             dialogueOrVO: sh.dialogueOrVO,
             styleBible,
+            language,
           }),
         },
       });

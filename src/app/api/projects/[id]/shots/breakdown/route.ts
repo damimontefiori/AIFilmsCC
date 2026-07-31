@@ -31,7 +31,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       language: project.language,
       targetDurationSec: project.targetDurationSec,
     });
-    await replaceBreakdown(id, breakdown, project.styleBible);
+    await replaceBreakdown(id, breakdown, project.styleBible, project.language);
     if (["script", "characters"].includes(project.status)) {
       await prisma.project.update({ where: { id }, data: { status: "shots" } });
     }

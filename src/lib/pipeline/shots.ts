@@ -218,25 +218,28 @@ export function buildCompositePrompt(params: {
  * del contenido.
  */
 export function buildGeminiVideoPrompt(params: {
-  durationSec: number;
   actionDescription: string;
   cameraNotes: string;
   dialogueOrVO: string;
   styleBible: string;
+  language: string;
 }): string {
   const style = params.styleBible.slice(0, 400);
+  const langName = promptLangName(params.language);
+  const hasDialogue = params.dialogueOrVO.trim().length > 0;
   return [
-    `Animate the attached keyframe into a ~${params.durationSec}s cinematic clip.`,
-    "Keep the characters' appearance, wardrobe and the visual style EXACTLY as in the image.",
+    // Gemini Omni genera clips de duración fija (~10s), ignora la duración pedida.
+    `Animate the attached keyframe into a short cinematic clip (~${CLIP_SECONDS}s).`,
+    "Keep the characters, wardrobe, ENVIRONMENT, props/objects and visual style EXACTLY as in the image — do not change or replace them.",
     `Action: ${params.actionDescription}`,
     params.cameraNotes ? `Camera: ${params.cameraNotes}` : "",
-    params.dialogueOrVO ? `Dialogue / VO: ${params.dialogueOrVO}` : "",
+    // Audio: sin música (rompe la continuidad al concatenar) y sin diálogos no pedidos.
+    hasDialogue
+      ? `Dialogue / voice-over, spoken ONLY in ${langName}: "${params.dialogueOrVO}". No other language.`
+      : "No dialogue, no voice-over, no spoken words.",
+    "No background music, no musical score, no soundtrack (ambient/diegetic sound only).",
     style ? `Style: ${style}` : "",
-    "Cinematic, warm, family-friendly tone.",
-    // NOTA: NO enumerar términos prohibidos (gore, violence, nudity…) aquí:
-    // aunque vayan con "no", el filtro de la app de Gemini detecta esas
-    // palabras y RECHAZA el clip. La seguridad se aplica al generar el guion.
-    "Keep each character's identity consistent. No on-screen text, subtitles or watermarks.",
+    "Cinematic, warm, family-friendly tone. Keep each character's identity consistent. No on-screen text, subtitles or watermarks.",
   ]
     .filter(Boolean)
     .join("\n");
