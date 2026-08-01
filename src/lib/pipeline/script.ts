@@ -16,6 +16,8 @@ import {
 export type ScriptModelChoice = {
   model?: string;
   apiKey?: string;
+  /** Ejecuta el pase de revisión "script doctor" (por defecto true). */
+  review?: boolean;
 };
 
 export type ScriptInput = {
@@ -174,43 +176,107 @@ export async function generateScript(
     .filter(Boolean)
     .join("\n");
 
-  const modelId = choice.model || DEFAULT_SCRIPT_MODEL;
-  const modelOpt = scriptModelById(modelId);
-
-  // Reintenta ante fallos transitorios o JSON malformado (2 intentos: el
-  // modelo de razonamiento es costoso, no conviene reintentar de más).
-  return withRetry(
+  // 1) Borrador. Reintenta ante fallos transitorios o JSON malformado.
+  const draft = await withRetry(
     async () => {
-      let text: string;
-      if (modelOpt?.provider === "aistudio") {
-        // Gemini (AI Studio, nivel gratuito) — rápido.
-        const apiKey = choice.apiKey?.trim() || defaultAiStudioKey();
-        if (!apiKey) {
-          throw new Error(
-            "Falta la API Key de AI Studio para el modelo seleccionado.",
-          );
-        }
-        text = await geminiGenerateText({
-          apiKey,
-          model: modelId,
-          system,
-          user,
-          jsonMode: true,
-          maxTokens: 32768,
-        });
-      } else {
-        // Azure (gpt-5.4-pro) — modelo de razonamiento por defecto.
-        const r = await generateNarrative({
-          system,
-          user,
-          jsonMode: true,
-          maxTokens: 20000,
-        });
-        text = r.text;
-      }
-      const raw = extractJson<unknown>(text);
-      return coerceScriptDoc(raw, input);
+      const text = await callScriptModel(system, user, choice, 20000, 32768);
+      return coerceScriptDoc(extractJson<unknown>(text), input);
     },
     { attempts: 2 },
   );
+
+  // 2) Pase de revisión "script doctor": corrige incoherencias y huecos de
+  //    comprensión antes de fijar el guion. Si falla, conserva el borrador.
+  if (choice.review === false) return draft;
+  return reviewScript(draft, input, choice);
+}
+
+/** Llama al modelo de guion elegido (Azure razonamiento o Gemini AI Studio). */
+export async function callScriptModel(
+  system: string,
+  user: string,
+  choice: ScriptModelChoice,
+  maxTokensAzure = 20000,
+  maxTokensGemini = 32768,
+): Promise<string> {
+  const modelId = choice.model || DEFAULT_SCRIPT_MODEL;
+  const modelOpt = scriptModelById(modelId);
+  if (modelOpt?.provider === "aistudio") {
+    const apiKey = choice.apiKey?.trim() || defaultAiStudioKey();
+    if (!apiKey) {
+      throw new Error("Falta la API Key de AI Studio para el modelo seleccionado.");
+    }
+    return geminiGenerateText({
+      apiKey,
+      model: modelId,
+      system,
+      user,
+      jsonMode: true,
+      maxTokens: maxTokensGemini,
+    });
+  }
+  const r = await generateNarrative({ system, user, jsonMode: true, maxTokens: maxTokensAzure });
+  return r.text;
+}
+
+/**
+ * Pase de revisión "script doctor": revisa el borrador y CORRIGE incoherencias
+ * y huecos de comprensión para que el film se entienda SOLO con lo visible +
+ * hablado. Ante cualquier fallo devuelve el borrador sin tocar.
+ */
+export async function reviewScript(
+  draft: ScriptDoc,
+  input: ScriptInput,
+  choice: ScriptModelChoice,
+): Promise<ScriptDoc> {
+  const lang = promptLangName(input.language);
+  const system = [
+    "Eres un EDITOR de guion / 'script doctor' exigente de cine.",
+    `Trabajas en ${lang}.`,
+    "Recibes un guion BORRADOR y lo CORRIGES para que el cortometraje sea coherente y COMPRENSIBLE viendo SOLO los clips.",
+    "REGLA DE ORO: el espectador solo ve la acción (convertida en video) y oye el diálogo; NUNCA lee sinopsis ni resúmenes.",
+    "Detecta y CORRIGE:",
+    "- Datos en líneas de ACCIÓN que no se pueden VER (backstory, relaciones, motivos ocultos): dramatízalos en un beat visible (una imagen/objeto/foto que el público vea con claridad, o un flashback breve) o dilos en diálogo claro; si no se puede mostrar, elimínalo.",
+    "- Diálogo CRÍPTICO que dependa de contexto no mostrado: hazlo auto-explicativo, o establece antes ese contexto en pantalla.",
+    "- Elementos introducidos y NO resueltos (hilos sueltos): págalos o quítalos.",
+    "- Incoherencias de trama, de reparto (nº y nombres de personajes) y de continuidad.",
+    "- Arco poco claro: asegura presentación (quiénes/dónde/qué quieren), detonante, escalada, giro/clímax y desenlace, todo LEGIBLE en pantalla.",
+    "Conserva lo que ya funciona y el tono/estilo; cambia SOLO lo necesario. Mantén una duración y nº de escenas similares.",
+    "Devuelves EXCLUSIVAMENTE el guion COMPLETO corregido en el MISMO JSON, sin texto adicional ni fences.",
+    "",
+    GEMINI_VIDEO_SAFETY,
+  ].join(" ");
+
+  const compact = JSON.stringify({
+    title: draft.title,
+    logline: draft.logline,
+    synopsis: draft.synopsis,
+    genre: draft.genre,
+    tone: draft.tone,
+    styleBible: draft.styleBible,
+    scenes: draft.scenes,
+  });
+
+  const user = [
+    "Concepto de referencia:",
+    `- Logline: ${input.logline}`,
+    `- Sinopsis: ${input.synopsis}`,
+    "",
+    "AUTO-CHEQUEO a garantizar: un espectador que SOLO ve los clips (sin leer nada) entiende quiénes son, qué quiere el/la protagonista, qué está en juego, el giro y cómo termina, usando SOLO acción visible y diálogo.",
+    "Corrige el siguiente guion borrador y devuelve el JSON corregido con la MISMA forma { title, logline, synopsis, genre, tone, styleBible, scenes: [ { order, heading, location, timeOfDay, summary, characters, beats: [ {type:'action',text} | {type:'dialogue',character,line,parenthetical?} ] } ] }.",
+    "",
+    "GUION BORRADOR (JSON):",
+    compact.slice(0, 16000),
+  ].join("\n");
+
+  try {
+    const text = await withRetry(
+      () => callScriptModel(system, user, choice, 20000, 32768),
+      { attempts: 2 },
+    );
+    const doc = coerceScriptDoc(extractJson<unknown>(text), input);
+    return doc.scenes.length > 0 ? doc : draft;
+  } catch {
+    return draft;
+  }
 }
