@@ -2,7 +2,13 @@
 // personaje (p.ej. "La niña"): exacto → contención → solapamiento de tokens.
 // El desglose suele nombrar a los personajes distinto que la extracción.
 
-const norm = (s: string) => s.trim().toLowerCase();
+// Normaliza sin distinguir acentos: "Lucia" ≈ "Lucía".
+const norm = (s: string) =>
+  s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(new RegExp("[\\u0300-\\u036f]", "g"), "");
 const nameTokens = (s: string) =>
   norm(s)
     .split(/\s+/)

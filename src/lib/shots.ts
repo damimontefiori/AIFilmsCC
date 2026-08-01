@@ -1,11 +1,40 @@
 import { prisma } from "@/lib/db";
 import { parseJson, toJson } from "@/lib/serialize";
+import { matchCharacter } from "@/lib/match-characters";
 import type { SceneDTO, ShotDTO } from "@/lib/dto";
 import {
   buildGeminiVideoPrompt,
   CLIP_SECONDS,
   type BreakdownScene,
 } from "@/lib/pipeline/shots";
+
+/** Tag visual corto de un personaje (para la leyenda "quién es quién"). */
+function shortAppearance(name: string, desc: string): string {
+  let d = desc.trim();
+  const nameRe = new RegExp(
+    "^" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[,\\s]*",
+    "i",
+  );
+  d = d.replace(nameRe, "").replace(/^aparenta\s*/i, "");
+  return d.slice(0, 180).trim();
+}
+
+/** Construye la leyenda de reparto (nombre → apariencia) para un plano. */
+export function buildShotCast(
+  shotCharacterNames: string[],
+  chars: { name: string; canonicalDescription: string }[],
+): { name: string; appearance: string }[] {
+  const cast: { name: string; appearance: string }[] = [];
+  const seen = new Set<string>();
+  for (const n of shotCharacterNames) {
+    const c = matchCharacter(n, chars);
+    if (c && !seen.has(c.name)) {
+      seen.add(c.name);
+      cast.push({ name: c.name, appearance: shortAppearance(c.name, c.canonicalDescription) });
+    }
+  }
+  return cast;
+}
 
 type ShotRow = {
   id: string;
@@ -79,6 +108,7 @@ export async function replaceBreakdown(
   styleBible: string,
   language: string,
 ): Promise<void> {
+  const chars = await prisma.character.findMany({ where: { projectId } });
   await prisma.scene.deleteMany({ where: { projectId } });
   let globalShotOrder = 0;
   for (const sc of breakdown) {
@@ -111,6 +141,7 @@ export async function replaceBreakdown(
             dialogueOrVO: sh.dialogueOrVO,
             styleBible,
             language,
+            cast: buildShotCast(sh.characters, chars),
           }),
         },
       });

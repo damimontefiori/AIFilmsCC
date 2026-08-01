@@ -181,6 +181,7 @@ function ShotRow({
             actionDescription: local.actionDescription,
             cameraNotes: local.cameraNotes,
             dialogueOrVO: local.dialogueOrVO,
+            characters: local.characters,
           }),
         },
       );
@@ -328,6 +329,22 @@ function ShotRow({
           <div>
             <Label>Diálogo / voz en off</Label>
             <Input value={local.dialogueOrVO} onChange={(e) => set("dialogueOrVO", e.target.value)} />
+          </div>
+          <div>
+            <Label>Personajes en cuadro (coma)</Label>
+            <Input
+              value={local.characters.join(", ")}
+              onChange={(e) =>
+                set(
+                  "characters",
+                  e.target.value.split(",").map((x) => x.trim()).filter(Boolean),
+                )
+              }
+              placeholder="Ej: Lucía, Sofía"
+            />
+            <p className="mt-1 text-[11px] text-muted">
+              Incluye a quien esté de espaldas u OTS para que use su referencia.
+            </p>
           </div>
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={save} disabled={saving}>

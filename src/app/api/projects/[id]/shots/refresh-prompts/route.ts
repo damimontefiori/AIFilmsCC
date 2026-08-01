@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getProject } from "@/lib/projects";
-import { getShotsFlat } from "@/lib/shots";
+import { getShotsFlat, buildShotCast } from "@/lib/shots";
+import { parseJson } from "@/lib/serialize";
 import { buildGeminiVideoPrompt, CLIP_SECONDS } from "@/lib/pipeline/shots";
 
 export const runtime = "nodejs";
@@ -16,6 +17,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   const project = await getProject(id);
   if (!project) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
+  const chars = await prisma.character.findMany({ where: { projectId: id } });
   const scenes = await prisma.scene.findMany({
     where: { projectId: id },
     include: { shots: true },
@@ -30,6 +32,7 @@ export async function POST(_req: Request, { params }: Ctx) {
         dialogueOrVO: shot.dialogueOrVO,
         styleBible: project.styleBible,
         language: project.language,
+        cast: buildShotCast(parseJson<string[]>(shot.characterIds, []), chars),
       });
       // Normaliza la duración a la fija de Gemini Omni (~10s).
       await prisma.shot.update({

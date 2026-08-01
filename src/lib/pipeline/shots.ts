@@ -69,8 +69,9 @@ export async function breakdownShots(input: {
     "- Alterna quién está en cuadro: usa primeros planos y planos de UN solo personaje para reacciones y momentos clave; reserva los planos con todo el grupo para 1-2 momentos (apertura o clímax).",
     "- Indica el movimiento de cámara (fijo, paneo, dolly/steadycam, etc.) y la emoción del momento.",
     "",
-    "REGLA CRÍTICA sobre 'characters': lista ÚNICAMENTE los personajes REALMENTE VISIBLES EN EL ENCUADRE de ESE plano (no todos los de la escena).",
-    "En un primer plano suele haber 1 persona; en un plano/contraplano 1-2; el grupo completo solo cuando el encuadre lo muestra. Un inserto o plano de detalle puede tener 0 personas.",
+    "REGLA CRÍTICA sobre 'characters': lista TODAS las personas VISIBLES EN EL ENCUADRE de ESE plano (no todos los de la escena, pero sí todas las que se ven).",
+    "INCLUYE a quien aparezca de espaldas, de perfil o en primer plano en un plano over-the-shoulder (OTS): esa persona está en cuadro y debe listarse.",
+    "En un primer plano suele haber 1 persona; en un plano/contraplano u OTS, las 2 personas implicadas; el grupo completo solo cuando el encuadre lo muestra. Un inserto o plano de detalle puede tener 0 personas.",
     "Mantén la MISMA vestimenta y aspecto de cada personaje en todos los planos (continuidad).",
     "",
     "Devuelve JSON con la forma:",
@@ -155,7 +156,7 @@ export function buildKeyframePrompt(params: {
   return [
     headline,
     params.withReferences
-      ? `Insert ${names.join(" and ")} INTO the scene EXACTLY as their labeled reference image (same face, hairstyle and full wardrobe); they are living people standing/sitting in the shot, not a backdrop. Keep identities distinct and unmixed.`
+      ? `Insert ${names.join(" and ")} INTO the scene EXACTLY as their labeled reference image (same face, hairstyle and full wardrobe); even from behind or in profile keep their exact hair and wardrobe. They are living people standing/sitting in the shot, not a backdrop. Keep identities distinct and unmixed.`
       : "",
     "",
     `CAST: ${castRule}`,
@@ -199,7 +200,7 @@ export function buildCompositePrompt(params: {
   return [
     `EDIT the provided base image (a photographed film location). Add ${names.join(" and ")} INTO that scene as real photographed people, seamlessly integrated — match the base image's lighting, color, grain, depth of field and perspective. Aspect ratio ${params.aspectRatio}, photorealistic.`,
     `EXACTLY ${names.length} ${names.length === 1 ? "person" : "people"} added: ${names.join(", ")}. Each appears once — no duplicates, no extra people.`,
-    `Reproduce each person's face, hairstyle and full wardrobe EXACTLY from their labeled reference (${names.join(", ")}).`,
+    `Reproduce each person's face, hairstyle and full wardrobe EXACTLY from their labeled reference (${names.join(", ")}). Even when a person is seen from BEHIND or in profile, keep their exact hair color/style, wardrobe and silhouette so they remain recognizable.`,
     `PEOPLE IN FRAME:\n${charBlock}`,
     `ACTION / POSE: ${params.actionDescription}.`,
     params.cameraNotes ? `FRAMING: ${params.cameraNotes}.` : "",
@@ -212,10 +213,18 @@ export function buildCompositePrompt(params: {
     .join("\n");
 }
 
+/** Quita el prefijo de guion "PERSONAJE (acotación):" de una línea de diálogo. */
+export function stripSpeakerPrefix(s: string): string {
+  return s
+    .replace(/^\s*\p{Lu}[\p{L}\p{M}\s.'’-]{0,30}?(\s*\([^)]*\))?\s*:\s+/u, "")
+    .trim();
+}
+
 /**
  * Prompt de video (image-to-video) que el usuario pega en Gemini junto con el
  * keyframe. Etiquetas en inglés (Veo responde mejor), valores en el idioma
- * del contenido.
+ * del contenido. Incluye una LEYENDA visual para que el modelo identifique a
+ * cada personaje en la imagen (no puede resolver nombres por sí solo).
  */
 export function buildGeminiVideoPrompt(params: {
   actionDescription: string;
@@ -223,23 +232,32 @@ export function buildGeminiVideoPrompt(params: {
   dialogueOrVO: string;
   styleBible: string;
   language: string;
+  cast: { name: string; appearance: string }[];
 }): string {
   const style = params.styleBible.slice(0, 400);
   const langName = promptLangName(params.language);
-  const hasDialogue = params.dialogueOrVO.trim().length > 0;
+  const dialogue = stripSpeakerPrefix(params.dialogueOrVO);
+  const hasDialogue = dialogue.length > 0;
+  const legend =
+    params.cast.length > 0
+      ? `Who is who in the image — ${params.cast
+          .map((c) => `${c.name}: ${c.appearance}`)
+          .join(" | ")}.`
+      : "";
   return [
     // Gemini Omni genera clips de duración fija (~10s), ignora la duración pedida.
     `Animate the attached keyframe into a short cinematic clip (~${CLIP_SECONDS}s).`,
     "Keep the characters, wardrobe, ENVIRONMENT, props/objects and visual style EXACTLY as in the image — do not change or replace them.",
+    legend, // el modelo no resuelve nombres solo; se los mapeamos a la imagen
     `Action: ${params.actionDescription}`,
     params.cameraNotes ? `Camera: ${params.cameraNotes}` : "",
     // Audio: sin música (rompe la continuidad al concatenar) y sin diálogos no pedidos.
     hasDialogue
-      ? `Dialogue / voice-over, spoken ONLY in ${langName}: "${params.dialogueOrVO}". No other language.`
+      ? `Spoken dialogue, ONLY in ${langName}: "${dialogue}". No other language.`
       : "No dialogue, no voice-over, no spoken words.",
     "No background music, no musical score, no soundtrack (ambient/diegetic sound only).",
     style ? `Style: ${style}` : "",
-    "Cinematic, warm, family-friendly tone. Keep each character's identity consistent. No on-screen text, subtitles or watermarks.",
+    "Cinematic tone, family-friendly. Keep each person's face, hair and wardrobe consistent (even seen from behind or in profile). No on-screen text, subtitles or watermarks.",
   ]
     .filter(Boolean)
     .join("\n");
