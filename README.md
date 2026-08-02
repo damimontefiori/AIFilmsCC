@@ -55,7 +55,7 @@ ffmpeg; incluye pruebas en vivo).
 |---|---|---|
 | Guion (creativo) | `gpt-5.4-pro` (por defecto) **o** `gemini-3.6-flash` (AI Studio) | FOUNDRY_NARRATIVE / AISTUDIO |
 | Concepto / personajes / planos (JSON) | `gpt-4.1` (chat) | ACCENTURE→STUDENTS |
-| Imágenes (refs + keyframes) | `gemini-2.5-flash-image` (+ FLUX.2-pro fallback) | GEMINI free→paid |
+| Imágenes (refs + keyframes) | `gemini-3.1-flash-lite-image` (Nano Banana 2 Lite; + FLUX.2-pro fallback) | GEMINI free→paid |
 
 > `gpt-5.4-pro` puede tardar **hasta ~15 min** en responder; no es un fallo.
 > Por eso solo se usa para el guion; el resto usa `gpt-4.1` (segundos).

@@ -75,7 +75,7 @@ export type GeminiImageConfig = {
 
 /** Claves de Gemini image en orden de failover (free -> paid). */
 export function geminiImageConfigs(): GeminiImageConfig[] {
-  const model = env("GEMINI_IMAGE_MODEL") || "gemini-2.5-flash-image";
+  const model = env("GEMINI_IMAGE_MODEL") || "gemini-3.1-flash-lite-image";
   const configs: GeminiImageConfig[] = [];
   const free = env("GEMINI_FREE_API_KEY");
   if (free) configs.push({ label: "gemini-free", apiKey: free, model });

@@ -50,7 +50,14 @@ export async function POST(req: Request, { params }: Ctx) {
     }
 
     // Reúne referencias ETIQUETADAS por personaje (mapea imagen ↔ nombre).
-    const kindRank: Record<string, number> = { portrait: 0, full_body: 1, three_quarter: 2 };
+    // En COMPONER enviamos SOLO 1 referencia por personaje (la más representativa:
+    // cuerpo entero) para que, con varios personajes, el modelo no se confunda ni
+    // mezcle identidades. En DIRECTO usamos hasta 2 (retrato + cuerpo).
+    const kindRank: Record<string, number> =
+      mode === "composite"
+        ? { full_body: 0, three_quarter: 1, portrait: 2 }
+        : { portrait: 0, full_body: 1, three_quarter: 2 };
+    const maxRefs = mode === "composite" ? 1 : 2;
     const labeledReferences: { label: string; images: InputImage[] }[] = [];
     const flatRefs: InputImage[] = [];
     const descriptions: { name: string; description: string }[] = [];
@@ -60,7 +67,7 @@ export async function POST(req: Request, { params }: Ctx) {
       const refs = parseJson<ReferenceImage[]>(c.referenceImages, [])
         .slice()
         .sort((a, b) => (kindRank[a.kind] ?? 9) - (kindRank[b.kind] ?? 9))
-        .slice(0, 2);
+        .slice(0, maxRefs);
       const images: InputImage[] = [];
       for (const r of refs) {
         const data = await readMediaBase64(r.path);
