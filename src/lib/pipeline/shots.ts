@@ -112,6 +112,7 @@ export function buildKeyframePrompt(params: {
   sceneHeading: string;
   sceneSummary: string;
   actionDescription: string;
+  keyframeMoment?: string; // instante exacto a congelar; si vacío, se usa la acción entera
   cameraNotes: string;
   characterDescriptions: { name: string; description: string }[];
   styleBible: string;
@@ -163,7 +164,9 @@ export function buildKeyframePrompt(params: {
     charBlock ? `CHARACTERS IN FRAME:\n${charBlock}` : "",
     "",
     `BACKGROUND SETTING (soft-focus set-dressing BEHIND the subject; render THIS place, and do NOT substitute another environment from the style guide — e.g. do not put an Earth scene in space): ${params.sceneHeading}${n === 0 && params.sceneSummary ? ` — ${params.sceneSummary}` : ""}.`,
-    `ACTION (freeze the decisive opening-frame moment): ${params.actionDescription}.`,
+    params.keyframeMoment?.trim()
+      ? `KEY MOMENT TO FREEZE (depict EXACTLY this instant): ${params.keyframeMoment.trim()}.`
+      : `ACTION (freeze the decisive opening-frame moment): ${params.actionDescription}.`,
     params.cameraNotes ? `SHOT / CAMERA: ${params.cameraNotes}.` : "",
     moodBits
       ? `GENRE & MOOD: ${moodBits}. Lighting, expressions and body language must convey this mood — not a posed or cheerful snapshot.`
@@ -186,6 +189,7 @@ export function buildKeyframePrompt(params: {
 export function buildCompositePrompt(params: {
   characterDescriptions: { name: string; description: string }[];
   actionDescription: string;
+  keyframeMoment?: string; // instante exacto a congelar; si vacío, se usa la acción entera
   cameraNotes: string;
   genre: string;
   tone: string;
@@ -202,8 +206,9 @@ export function buildCompositePrompt(params: {
     `EXACTLY ${names.length} ${names.length === 1 ? "person" : "people"} added: ${names.join(", ")}. Each appears once — no duplicates, no extra people.`,
     `Reproduce each person's face, hairstyle and full wardrobe EXACTLY from their labeled reference (${names.join(", ")}). Even when a person is seen from BEHIND or in profile, keep their exact hair color/style, wardrobe and silhouette so they remain recognizable.`,
     `PEOPLE IN FRAME:\n${charBlock}`,
-    `ACTION / POSE: ${params.actionDescription}.`,
-    params.cameraNotes ? `FRAMING: ${params.cameraNotes}.` : "",
+    params.keyframeMoment?.trim()
+      ? `KEY MOMENT / POSE (depict EXACTLY this instant): ${params.keyframeMoment.trim()}.`
+      : `ACTION / POSE: ${params.actionDescription}.`,
     moodBits ? `Their expressions and body language convey: ${moodBits}.` : "",
     `Keep the environment, its objects, composition and framing UNCHANGED; only add the people. ${names.join(" and ")} MUST be clearly visible and correctly scaled in the result.`,
     REALISM_DIRECTIVE,

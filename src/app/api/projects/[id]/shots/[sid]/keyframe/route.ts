@@ -7,7 +7,7 @@ import { buildKeyframePrompt, buildCompositePrompt } from "@/lib/pipeline/shots"
 import { generateImage, type InputImage } from "@/lib/providers/image";
 import { saveBase64Image, readMediaBase64 } from "@/lib/media/store";
 import { fromRelative } from "@/lib/paths";
-import { matchCharacter, matchLocationForScene } from "@/lib/match-characters";
+import { matchCharacter } from "@/lib/match-characters";
 import { promises as fs } from "node:fs";
 
 export const runtime = "nodejs";
@@ -30,8 +30,14 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
   const body = await req.json().catch(() => ({}));
-  const mode = body.mode === "composite" ? "composite" : "direct";
-  const regenEnvironment = body.regenEnvironment === true;
+  // Técnica: body.mode la sobreescribe puntualmente; si no, la del plano.
+  const mode = (body.mode ?? shot.renderMode) === "direct" ? "direct" : "composite";
+  // preview: devuelve el prompt SIN generar. promptOverride: se usa TAL CUAL.
+  const preview = body.preview === true;
+  const promptOverride =
+    typeof body.promptOverride === "string" && body.promptOverride.trim()
+      ? String(body.promptOverride)
+      : "";
 
   try {
     const scene = await prisma.scene.findUnique({ where: { id: shot.sceneId } });
@@ -49,15 +55,13 @@ export async function POST(req: Request, { params }: Ctx) {
       }
     }
 
-    // Reúne referencias ETIQUETADAS por personaje (mapea imagen ↔ nombre).
-    // En COMPONER enviamos SOLO 1 referencia por personaje (la más representativa:
-    // cuerpo entero) para que, con varios personajes, el modelo no se confunda ni
-    // mezcle identidades. En DIRECTO usamos hasta 2 (retrato + cuerpo).
+    // Referencias ETIQUETADAS por personaje. En COMPONER 1 por personaje
+    // (cuerpo entero) para no mezclar identidades; en DIRECTO hasta 2.
     const kindRank: Record<string, number> =
-      mode === "composite"
-        ? { full_body: 0, three_quarter: 1, portrait: 2 }
-        : { portrait: 0, full_body: 1, three_quarter: 2 };
-    const maxRefs = mode === "composite" ? 1 : 2;
+      mode === "direct"
+        ? { portrait: 0, full_body: 1, three_quarter: 2 }
+        : { full_body: 0, three_quarter: 1, portrait: 2 };
+    const maxRefs = mode === "direct" ? 2 : 1;
     const labeledReferences: { label: string; images: InputImage[] }[] = [];
     const flatRefs: InputImage[] = [];
     const descriptions: { name: string; description: string }[] = [];
@@ -82,100 +86,106 @@ export async function POST(req: Request, { params }: Ctx) {
       }
     }
 
-    const doComposite = mode === "composite" && descriptions.length > 0;
+    const hasChars = descriptions.length > 0;
+    const doComposite = mode !== "direct" && hasChars;
 
-    let keyframePath: string;
-    let keyframePromptUsed: string;
-    let provider: string;
-    let environmentPath: string | null = shot.environmentPath;
-
-    // ¿La escena tiene una LOCACIÓN con imagen de ambiente reutilizable?
-    const locations = await prisma.location.findMany({ where: { projectId: id } });
-    const location = matchLocationForScene(
-      `${scene?.heading || ""} ${scene?.summary || ""}`,
-      locations,
-    );
-    const ownsEnv = (p: string | null) => !!p && p.includes(`${sid}-env-`);
-
-    if (doComposite) {
-      // ── Compositing por capas: 1) ambiente, 2) insertar personaje(s) ──
-      if (location?.imagePath) {
-        // Ambiente COMPARTIDO de la locación → entorno/objetos consistentes
-        // entre todos los planos del mismo lugar.
-        if (ownsEnv(environmentPath) && environmentPath !== location.imagePath) {
-          await rmRel(environmentPath); // limpia un plate propio anterior
-        }
-        environmentPath = location.imagePath;
-      } else if (!environmentPath || regenEnvironment || !ownsEnv(environmentPath)) {
-        // Sin locación: genera un plate de ambiente propio del plano.
-        const envPrompt = buildKeyframePrompt({
+    // Prompt (mismo texto para preview y para generar). keyframeMoment fija el
+    // instante; vacío → acción completa.
+    const builtPrompt = doComposite
+      ? buildCompositePrompt({
+          characterDescriptions: descriptions,
+          actionDescription: shot.actionDescription,
+          keyframeMoment: shot.keyframeMoment,
+          cameraNotes: shot.cameraNotes,
+          genre: project.genre,
+          tone: project.tone,
+          aspectRatio: project.aspectRatio,
+        })
+      : buildKeyframePrompt({
           sceneHeading: scene?.heading || "",
           sceneSummary: scene?.summary || "",
           actionDescription: shot.actionDescription,
+          keyframeMoment: shot.keyframeMoment,
           cameraNotes: shot.cameraNotes,
-          characterDescriptions: [], // ambiente SIN personajes (se genera fiable)
+          characterDescriptions: mode === "direct" ? descriptions : [],
           styleBible: project.styleBible,
           genre: project.genre,
           tone: project.tone,
           aspectRatio: project.aspectRatio,
-          withReferences: false,
+          withReferences: mode === "direct" && labeledReferences.length > 0,
         });
-        const envResult = await generateImage({ prompt: envPrompt, aspectRatio: project.aspectRatio });
-        const newEnv = await saveBase64Image(id, "keyframes", `${sid}-env-${Date.now()}`, envResult.base64, envResult.mimeType);
-        if (ownsEnv(environmentPath) && environmentPath !== newEnv) await rmRel(environmentPath);
-        environmentPath = newEnv;
-      }
 
-      const envData = await readMediaBase64(environmentPath);
-      if (!envData) throw new Error("No se pudo leer el ambiente");
+    if (preview) {
+      return NextResponse.json({ prompt: builtPrompt, mode });
+    }
 
-      const compPrompt = buildCompositePrompt({
-        characterDescriptions: descriptions,
-        actionDescription: shot.actionDescription,
-        cameraNotes: shot.cameraNotes,
-        genre: project.genre,
-        tone: project.tone,
+    const effectivePrompt = promptOverride || builtPrompt;
+
+    // Resuelve la imagen base del AMBIENTE. Locación EFECTIVA del plano:
+    // override del plano → locación de la escena. Se usa el encuadre elegido solo
+    // si pertenece a esa locación (si quedó "stale", cae al canónico efectivo).
+    const effLocationId = shot.locationId ?? scene?.locationId ?? null;
+    let baseImagePath: string | null = null;
+    if (shot.encuadre?.imagePath && shot.encuadre.locationId === effLocationId) {
+      baseImagePath = shot.encuadre.imagePath;
+    } else if (effLocationId) {
+      const loc = await prisma.location.findUnique({ where: { id: effLocationId } });
+      baseImagePath = loc?.imagePath ?? null;
+    }
+
+    let keyframePath: string;
+    let keyframePromptUsed: string;
+    let provider: string;
+
+    if (mode === "direct") {
+      // ── Directo: una sola pasada con personajes, sin capa base. ──
+      const result = await generateImage({
+        prompt: effectivePrompt,
+        labeledReferences: labeledReferences.length ? labeledReferences : undefined,
+        referenceImages: flatRefs.length ? flatRefs : undefined,
         aspectRatio: project.aspectRatio,
       });
+      keyframePath = await saveBase64Image(id, "keyframes", `${sid}-${Date.now()}`, result.base64, result.mimeType);
+      keyframePromptUsed = effectivePrompt;
+      provider = result.provider;
+    } else if (hasChars) {
+      // ── Componer: personajes sobre el ambiente (encuadre/canónico). ──
+      if (!baseImagePath) {
+        throw new Error(
+          "El plano no tiene ambiente. Elige un encuadre o genera la imagen de la locación de la escena, o usa modo Directo.",
+        );
+      }
+      const envData = await readMediaBase64(baseImagePath);
+      if (!envData) throw new Error("No se pudo leer el ambiente");
       const result = await generateImage({
-        prompt: compPrompt,
+        prompt: effectivePrompt,
         baseImage: { base64: envData.base64, mimeType: "image/png" },
         labeledReferences: labeledReferences.length ? labeledReferences : undefined,
         referenceImages: flatRefs.length ? flatRefs : undefined,
         aspectRatio: project.aspectRatio,
       });
       keyframePath = await saveBase64Image(id, "keyframes", `${sid}-${Date.now()}`, result.base64, result.mimeType);
-      keyframePromptUsed = compPrompt;
+      keyframePromptUsed = effectivePrompt;
       provider = result.provider;
     } else {
-      // ── Directo: una sola generación ──
-      const prompt = buildKeyframePrompt({
-        sceneHeading: scene?.heading || "",
-        sceneSummary: scene?.summary || "",
-        actionDescription: shot.actionDescription,
-        cameraNotes: shot.cameraNotes,
-        characterDescriptions: descriptions,
-        styleBible: project.styleBible,
-        genre: project.genre,
-        tone: project.tone,
-        aspectRatio: project.aspectRatio,
-        withReferences: labeledReferences.length > 0,
-      });
-      const result = await generateImage({
-        prompt,
-        labeledReferences: labeledReferences.length ? labeledReferences : undefined,
-        referenceImages: flatRefs.length ? flatRefs : undefined,
-        aspectRatio: project.aspectRatio,
-      });
-      keyframePath = await saveBase64Image(id, "keyframes", `${sid}-${Date.now()}`, result.base64, result.mimeType);
-      keyframePromptUsed = prompt;
-      provider = result.provider;
-      // Un plano sin personajes es su propio "ambiente".
-      if (descriptions.length === 0) environmentPath = keyframePath;
+      // ── Componer sin personajes → el keyframe ES el ambiente. ──
+      if (!baseImagePath) {
+        throw new Error(
+          "El plano no tiene ambiente. Elige un encuadre o genera la imagen de la locación de la escena, o usa modo Directo.",
+        );
+      }
+      keyframePath = baseImagePath;
+      keyframePromptUsed = shot.keyframePrompt || "";
+      provider = "encuadre";
     }
 
-    // Borra el keyframe anterior (evita huérfanos).
-    if (shot.keyframePath && shot.keyframePath !== keyframePath && shot.keyframePath !== environmentPath) {
+    // Borra el keyframe anterior solo si es un archivo PROPIO del plano
+    // (`${sid}-…`): nunca una imagen de encuadre/locación compartida.
+    if (
+      shot.keyframePath &&
+      shot.keyframePath !== keyframePath &&
+      shot.keyframePath.includes(`${sid}-`)
+    ) {
       await rmRel(shot.keyframePath);
     }
 
@@ -183,10 +193,10 @@ export async function POST(req: Request, { params }: Ctx) {
       where: { id: sid },
       data: {
         keyframePath,
-        environmentPath,
         keyframePrompt: keyframePromptUsed,
         status: shot.status === "planned" ? "package_ready" : shot.status,
       },
+      include: { encuadre: true },
     });
     return NextResponse.json({ shot: toShotDTO(updated), provider, mode });
   } catch (err) {

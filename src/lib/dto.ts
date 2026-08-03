@@ -16,6 +16,15 @@ export type CharacterDTO = {
   order: number;
 };
 
+export type EncuadreDTO = {
+  id: string;
+  locationId: string;
+  label: string;
+  framingPrompt: string;
+  imagePath: string | null;
+  order: number;
+};
+
 export type LocationDTO = {
   id: string;
   projectId: string;
@@ -24,6 +33,7 @@ export type LocationDTO = {
   imagePath: string | null;
   locked: boolean;
   order: number;
+  encuadres: EncuadreDTO[];
 };
 
 export type ShotDTO = {
@@ -31,12 +41,16 @@ export type ShotDTO = {
   sceneId: string;
   order: number;
   actionDescription: string;
+  keyframeMoment: string;
   cameraNotes: string;
   dialogueOrVO: string;
   characters: string[];
   durationSec: number;
   keyframePath: string | null;
-  environmentPath: string | null;
+  encuadreId: string | null;
+  encuadreImagePath: string | null; // imagen del ambiente resuelto (encuadre elegido), para display
+  locationId: string | null; // override de locación de ESTE plano; null = usa el de la escena
+  renderMode: string; // composite | direct
   keyframePrompt: string | null;
   geminiPrompt: string | null;
   assignedAccountId: string | null;
@@ -51,6 +65,7 @@ export type SceneDTO = {
   heading: string;
   summary: string;
   characters: string[];
+  locationId: string | null;
   shots: ShotDTO[];
 };
 

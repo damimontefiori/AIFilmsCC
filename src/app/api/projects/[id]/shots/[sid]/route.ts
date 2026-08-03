@@ -10,6 +10,7 @@ type Ctx = { params: Promise<{ id: string; sid: string }> };
 
 const EDITABLE = new Set([
   "actionDescription",
+  "keyframeMoment",
   "cameraNotes",
   "dialogueOrVO",
   "durationSec",
@@ -17,6 +18,9 @@ const EDITABLE = new Set([
   "notes",
   "status",
   "assignedAccountId",
+  "encuadreId",
+  "locationId",
+  "renderMode",
 ]);
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -32,7 +36,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "Nada para actualizar" }, { status: 400 });
   }
-  const shot = await prisma.shot.update({ where: { id: sid }, data });
+  const shot = await prisma.shot.update({
+    where: { id: sid },
+    data,
+    include: { encuadre: true },
+  });
   return NextResponse.json(toShotDTO(shot));
 }
 

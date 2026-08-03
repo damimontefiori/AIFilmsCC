@@ -40,15 +40,35 @@ model Location {
   id          String   @id @default(cuid())
   projectId   String
   name        String
-  description String   @default("") // descripción visual del ambiente + objetos
-  imagePath   String? // imagen canónica del ambiente (sin personas), reutilizable
+  description String   @default("") // biblia de objetos: invariantes del lugar (materiales, props, luz)
+  imagePath   String? // imagen de REFERENCIA canónica (sin personas); ancla de apariencia
   imagePrompt String?
   locked      Boolean  @default(false)
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  encuadres Encuadre[]
+  scenes    Scene[]
+  shots     Shot[]
+}
+
+// Un ENCUADRE es una toma concreta de una Locación (general, cerrado, OTS…),
+// imagen SIN personas, generada a partir de la referencia canónica. Reutilizable
+// por cualquier plano que necesite esa misma toma.
+model Encuadre {
+  id           String   @id @default(cuid())
+  locationId   String
+  label        String   @default("")
+  framingPrompt String  @default("") // descripción de la toma usada al generar
+  imagePath    String?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  shots    Shot[]
 }
 
 model Character {
@@ -75,11 +95,13 @@ model Scene {
   heading      String   @default("")
   summary      String   @default("")
   characterIds String   @default("[]") // JSON: array de Character.id
+  locationId   String? // lugar por defecto de la escena (asignado por LLM); default para sus planos
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  shots   Shot[]
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  shots    Shot[]
 }
 
 model Shot {
@@ -87,12 +109,15 @@ model Shot {
   sceneId           String
   order             Int
   actionDescription String   @default("")
+  keyframeMoment    String   @default("") // instante exacto de la acción a congelar en el keyframe
   cameraNotes       String   @default("")
   dialogueOrVO      String   @default("")
   characterIds      String   @default("[]") // JSON: array de Character.id
   durationSec       Int      @default(10)
   keyframePath      String?
-  environmentPath   String? // plate de ambiente (sin personajes) para compositing
+  encuadreId        String? // toma elegida; null = usar la referencia canónica de la locación efectiva
+  locationId        String? // override de locación SOLO para este plano; null = usa el de la escena
+  renderMode        String   @default("composite") // composite | direct
   keyframePrompt    String?
   geminiPrompt      String? // prompt de video listo para pegar en Gemini
   assignedAccountId String?
@@ -102,8 +127,10 @@ model Shot {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  scene   Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  account Account? @relation(fields: [assignedAccountId], references: [id])
+  scene    Scene     @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  account  Account?  @relation(fields: [assignedAccountId], references: [id])
+  encuadre Encuadre? @relation(fields: [encuadreId], references: [id], onDelete: SetNull)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
 }
 
 model Account {

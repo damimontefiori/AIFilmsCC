@@ -247,7 +247,7 @@ function PackageCard({
 
   const isGenerated = shot.status === "generated" || shot.status === "imported";
   const hasEnvLayer =
-    !!shot.environmentPath && shot.environmentPath !== shot.keyframePath;
+    !!shot.encuadreImagePath && shot.encuadreImagePath !== shot.keyframePath;
 
   async function copy() {
     await navigator.clipboard.writeText(prompt).catch(() => {});
@@ -330,13 +330,13 @@ function PackageCard({
               <div className="flex flex-wrap gap-1.5">
                 {hasEnvLayer && (
                   <a
-                    href={mediaUrl(shot.environmentPath!)}
+                    href={mediaUrl(shot.encuadreImagePath!)}
                     download
                     title="Ambiente (capa base)"
                     className="group relative"
                   >
                     <img
-                      src={mediaUrl(shot.environmentPath!)}
+                      src={mediaUrl(shot.encuadreImagePath!)}
                       alt="ambiente"
                       className="h-12 w-16 rounded border border-border object-cover"
                     />
