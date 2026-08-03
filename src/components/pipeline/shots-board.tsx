@@ -1,17 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clapperboard,
   Wand2,
   Image as ImageIcon,
-  Save,
   Trash2,
   AlertCircle,
   RefreshCw,
   Plus,
   Images,
+  Sparkles,
+  Check,
 } from "lucide-react";
 import type { SceneDTO, ShotDTO, LocationDTO, EncuadreDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea, Label, Select } from "@/components/ui/field";
 import { Badge, Spinner } from "@/components/ui/misc";
+import { Modal, ImageZoom } from "@/components/ui/modal";
 
 function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -100,9 +102,7 @@ export function ShotsBoard({
   }
 
   function patchSceneLocation(sceneId: string, locationId: string | null) {
-    setScenes((scs) =>
-      scs.map((sc) => (sc.id === sceneId ? { ...sc, locationId } : sc)),
-    );
+    setScenes((scs) => scs.map((sc) => (sc.id === sceneId ? { ...sc, locationId } : sc)));
   }
 
   // Escenario GENERAL de la escena (afecta a los planos sin override).
@@ -115,7 +115,7 @@ export function ShotsBoard({
         body: JSON.stringify({ locationId: locId }),
       });
     } catch (e) {
-      patchSceneLocation(sceneId, prev); // revertir
+      patchSceneLocation(sceneId, prev);
       setError(e instanceof Error ? e.message : String(e));
     }
   }
@@ -231,36 +231,79 @@ function ShotRow({
 }) {
   const router = useRouter();
   const [local, setLocal] = useState(shot);
-  const [saving, setSaving] = useState(false);
-  const [genning, setGenning] = useState<null | "keyframe">(null);
   const [error, setError] = useState<string | null>(null);
+  const [genning, setGenning] = useState<null | "keyframe">(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   // Ambiente / encuadres.
   const [envBusy, setEnvBusy] = useState<null | "select" | "newenc" | "mode" | "scene">(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [newEncOpen, setNewEncOpen] = useState(false);
   const [newEncLabel, setNewEncLabel] = useState("");
   const [newEncFraming, setNewEncFraming] = useState("");
-  // Panel avanzado: ver/editar el prompt exacto.
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
+  // Prompt.
   const [promptOpen, setPromptOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [promptBusy, setPromptBusy] = useState<null | "preview" | "generate">(null);
 
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+
   const hasChars = local.characters.length > 0;
   const mode = local.renderMode === "direct" ? "direct" : "composite";
-  // Locación EFECTIVA del plano: override del plano → locación de la escena.
   const effLocationId = local.locationId ?? sceneLocationId;
   const effLocation = locations.find((l) => l.id === effLocationId) ?? null;
   const sceneLocation = locations.find((l) => l.id === sceneLocationId) ?? null;
   const found = findEncuadre(locations, local.encuadreId);
-  const encMatches = !!found && found.loc.id === effLocationId; // encuadre válido para la locación efectiva
+  const encMatches = !!found && found.loc.id === effLocationId;
   const currentLocation = encMatches ? found!.loc : effLocation;
   const envImage = (encMatches ? local.encuadreImagePath : null) ?? effLocation?.imagePath ?? null;
   const currentLabel = encMatches ? found!.enc.label || "Encuadre" : "Canónico";
   const isOverride = !!local.locationId;
-  const busy = genning !== null || envBusy !== null;
+  const busy = genning !== null || envBusy !== null || suggesting;
+
+  // ── Autoguardado de campos de texto (debounce) ──────────────────────────
+  async function persist(cur: ShotDTO) {
+    setSaveState("saving");
+    setError(null);
+    try {
+      const updated = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          actionDescription: cur.actionDescription,
+          keyframeMoment: cur.keyframeMoment,
+          cameraNotes: cur.cameraNotes,
+          dialogueOrVO: cur.dialogueOrVO,
+          characters: cur.characters,
+        }),
+      });
+      onPatch(updated); // sincroniza al padre (no toca el textarea en edición)
+      setSaveState("saved");
+      setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSaveState("idle");
+    }
+  }
+  function scheduleSave(next: ShotDTO) {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => persist(next), 700);
+  }
+  async function flushSave() {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    await persist(local);
+  }
 
   function set<K extends keyof ShotDTO>(k: K, v: ShotDTO[K]) {
-    setLocal((s) => ({ ...s, [k]: v }));
+    setLocal((s) => {
+      const next = { ...s, [k]: v };
+      scheduleSave(next);
+      return next;
+    });
   }
 
   function toggleChar(name: string) {
@@ -269,44 +312,38 @@ function ShotRow({
       const characters = exists
         ? s.characters.filter((c) => normName(c) !== normName(name))
         : [...s.characters, name];
-      return { ...s, characters };
+      const next = { ...s, characters };
+      scheduleSave(next);
+      return next;
     });
   }
 
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      const updated = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          actionDescription: local.actionDescription,
-          keyframeMoment: local.keyframeMoment,
-          cameraNotes: local.cameraNotes,
-          dialogueOrVO: local.dialogueOrVO,
-          characters: local.characters,
-        }),
-      });
-      setLocal(updated);
-      onPatch(updated);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
+  // Merge SOLO campos estructurales de una respuesta del server (no pisa texto en edición).
+  function mergeStructural(u: ShotDTO) {
+    setLocal((s) => ({
+      ...s,
+      encuadreId: u.encuadreId,
+      encuadreImagePath: u.encuadreImagePath,
+      locationId: u.locationId,
+      renderMode: u.renderMode,
+      keyframePath: u.keyframePath,
+      keyframePrompt: u.keyframePrompt,
+      status: u.status,
+    }));
+    onPatch(u);
   }
 
-  // Genera el keyframe con la técnica del plano (renderMode).
+  // ── Generación / IA ─────────────────────────────────────────────────────
   async function generateKeyframe() {
     setGenning("keyframe");
     setError(null);
     try {
+      await flushSave();
       const res = await jsonFetch<{ shot: ShotDTO }>(
         `/api/projects/${projectId}/shots/${shot.id}/keyframe`,
         { method: "POST", body: JSON.stringify({}) },
       );
-      setLocal(res.shot);
-      onPatch(res.shot);
+      mergeStructural(res.shot);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -314,18 +351,33 @@ function ShotRow({
     }
   }
 
-  // Cambia la técnica (Componer/Directo), persistida en el plano.
+  async function suggestMoment() {
+    setSuggesting(true);
+    setError(null);
+    try {
+      await flushSave();
+      const { moment } = await jsonFetch<{ moment: string }>(
+        `/api/projects/${projectId}/shots/${shot.id}/suggest-moment`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      if (moment) set("keyframeMoment", moment);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   async function setMode(next: "composite" | "direct") {
     if (next === mode) return;
     setEnvBusy("mode");
     setError(null);
     try {
-      const updated = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
+      const u = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
         method: "PATCH",
         body: JSON.stringify({ renderMode: next }),
       });
-      setLocal(updated);
-      onPatch(updated);
+      mergeStructural(u);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -333,18 +385,16 @@ function ShotRow({
     }
   }
 
-  // Elige un encuadre (o null = canónico de la locación de la escena).
   async function selectEncuadre(encuadreId: string | null) {
     setEnvBusy("select");
     setError(null);
     try {
-      const updated = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
+      const u = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
         method: "PATCH",
         body: JSON.stringify({ encuadreId }),
       });
-      setLocal(updated);
-      onPatch(updated);
-      setPickerOpen(false);
+      mergeStructural(u);
+      setGalleryOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -352,7 +402,6 @@ function ShotRow({
     }
   }
 
-  // Genera un ENCUADRE nuevo (otra toma) de la locación EFECTIVA y lo ancla.
   async function createEncuadre() {
     if (!effLocationId || !newEncFraming.trim()) return;
     setEnvBusy("newenc");
@@ -360,22 +409,18 @@ function ShotRow({
     try {
       const { encuadre } = await jsonFetch<{ encuadre: EncuadreDTO }>(
         `/api/projects/${projectId}/locations/${effLocationId}/encuadres`,
-        {
-          method: "POST",
-          body: JSON.stringify({ label: newEncLabel, framingPrompt: newEncFraming }),
-        },
+        { method: "POST", body: JSON.stringify({ label: newEncLabel, framingPrompt: newEncFraming }) },
       );
-      const updated = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
+      const u = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
         method: "PATCH",
         body: JSON.stringify({ encuadreId: encuadre.id }),
       });
-      setLocal(updated);
-      onPatch(updated);
+      mergeStructural(u);
       setNewEncOpen(false);
       setNewEncLabel("");
       setNewEncFraming("");
-      setPickerOpen(false);
-      router.refresh(); // refresca el catálogo de encuadres
+      setGalleryOpen(false);
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -383,18 +428,15 @@ function ShotRow({
     }
   }
 
-  // Cambia el escenario SOLO de este plano (override); resetea el encuadre.
   async function changeShotLocation(locId: string) {
     setEnvBusy("scene");
     setError(null);
     try {
-      const updated = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
+      const u = await jsonFetch<ShotDTO>(`/api/projects/${projectId}/shots/${shot.id}`, {
         method: "PATCH",
         body: JSON.stringify({ locationId: locId || null, encuadreId: null }),
       });
-      setLocal(updated);
-      onPatch(updated);
-      setPickerOpen(false);
+      mergeStructural(u);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -402,15 +444,11 @@ function ShotRow({
     }
   }
 
-  function openPicker() {
-    setNewEncOpen(false);
-    setPickerOpen(true);
-  }
-
-  async function previewPrompt() {
+  async function openPrompt() {
     setPromptBusy("preview");
     setError(null);
     try {
+      await flushSave();
       const res = await jsonFetch<{ prompt: string }>(
         `/api/projects/${projectId}/shots/${shot.id}/keyframe`,
         { method: "POST", body: JSON.stringify({ preview: true }) },
@@ -433,8 +471,8 @@ function ShotRow({
         `/api/projects/${projectId}/shots/${shot.id}/keyframe`,
         { method: "POST", body: JSON.stringify({ promptOverride: promptText }) },
       );
-      setLocal(res.shot);
-      onPatch(res.shot);
+      mergeStructural(res.shot);
+      setPromptOpen(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -456,14 +494,9 @@ function ShotRow({
         ? local.keyframePath ? "Recomponer keyframe" : "Componer keyframe"
         : local.keyframePath ? "Regenerar keyframe" : "Generar keyframe";
 
-  const tileCls = (active: boolean, hasImg: boolean) =>
-    `overflow-hidden rounded border text-left ${
-      active ? "border-primary ring-1 ring-primary" : "border-border"
-    } ${hasImg ? "hover:border-primary" : "opacity-60"}`;
-
   return (
     <Card>
-      <CardContent className="grid gap-4 p-4 md:grid-cols-[190px_1fr]">
+      <CardContent className="grid gap-4 p-4 md:grid-cols-[200px_1fr]">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Badge tone={status.tone}>#{index} · {status.label}</Badge>
@@ -471,7 +504,13 @@ function ShotRow({
           </div>
           <div className="aspect-video w-full overflow-hidden rounded-md border border-border bg-surface-2">
             {local.keyframePath ? (
-              <img src={mediaUrl(local.keyframePath)} alt="keyframe" className="h-full w-full object-cover" />
+              <ImageZoom
+                src={mediaUrl(local.keyframePath)}
+                alt="keyframe"
+                caption={`Keyframe · plano #${index}`}
+                className="h-full"
+                imgClassName="h-full"
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-muted">Sin keyframe</div>
             )}
@@ -531,7 +570,11 @@ function ShotRow({
 
               {envImage ? (
                 <div className="overflow-hidden rounded">
-                  <img src={mediaUrl(envImage)} alt="ambiente" className="aspect-video w-full object-cover" />
+                  <ImageZoom
+                    src={mediaUrl(envImage)}
+                    alt="ambiente"
+                    caption={`${currentLocation?.name ?? "Ambiente"} · ${currentLabel}`}
+                  />
                   <div className="truncate px-1 pt-0.5 text-[10px] text-muted">
                     {currentLocation?.name ?? "—"} · {currentLabel}
                     {isOverride ? " · (override)" : ""}
@@ -549,147 +592,27 @@ function ShotRow({
                 variant="ghost"
                 size="sm"
                 className="w-full"
-                onClick={() => (pickerOpen ? setPickerOpen(false) : openPicker())}
+                onClick={() => {
+                  setNewEncOpen(false);
+                  setGalleryOpen(true);
+                }}
                 disabled={busy || !effLocation}
               >
-                {envBusy === "select" ? <Spinner /> : <Images className="h-3 w-3" />}
-                {pickerOpen ? "Cerrar encuadres" : "Cambiar encuadre"}
+                <Images className="h-3 w-3" /> Cambiar encuadre
               </Button>
-
-              {pickerOpen && effLocation && (
-                <div className="space-y-1 border-t border-border pt-1">
-                  <p className="px-1 text-[10px] text-muted">
-                    Encuadres de <strong>{effLocation.name}</strong>
-                  </p>
-                  <div className="grid grid-cols-2 gap-1">
-                    <button
-                      type="button"
-                      disabled={busy || !effLocation.imagePath}
-                      onClick={() => selectEncuadre(null)}
-                      className={tileCls(local.encuadreId === null, !!effLocation.imagePath)}
-                      title="Toma canónica (imagen de referencia de la locación)."
-                    >
-                      {effLocation.imagePath ? (
-                        <img src={mediaUrl(effLocation.imagePath)} alt="canónico" className="aspect-video w-full object-cover" />
-                      ) : (
-                        <div className="flex aspect-video w-full items-center justify-center text-[9px] text-muted">sin imagen</div>
-                      )}
-                      <div className="truncate px-1 py-0.5 text-[9px]">
-                        {local.encuadreId === null ? "✓ " : ""}Canónico
-                      </div>
-                    </button>
-                    {effLocation.encuadres.map((enc) => (
-                      <button
-                        key={enc.id}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => selectEncuadre(enc.id)}
-                        className={tileCls(local.encuadreId === enc.id, !!enc.imagePath)}
-                        title={enc.label || "Encuadre"}
-                      >
-                        {enc.imagePath ? (
-                          <img src={mediaUrl(enc.imagePath)} alt={enc.label} className="aspect-video w-full object-cover" />
-                        ) : (
-                          <div className="flex aspect-video w-full items-center justify-center text-[9px] text-muted">—</div>
-                        )}
-                        <div className="truncate px-1 py-0.5 text-[9px]">
-                          {local.encuadreId === enc.id ? "✓ " : ""}{enc.label || "Encuadre"}
-                        </div>
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      disabled={busy || !effLocation.imagePath}
-                      onClick={() => setNewEncOpen((v) => !v)}
-                      className="flex aspect-video w-full flex-col items-center justify-center rounded border border-dashed border-border text-[10px] text-muted hover:border-primary disabled:opacity-50"
-                      title={effLocation.imagePath ? "Generar otra toma de esta locación" : "Genera antes la imagen de referencia en Escenarios"}
-                    >
-                      <Plus className="h-4 w-4" /> Nuevo encuadre
-                    </button>
-                  </div>
-
-                  {!effLocation.imagePath && (
-                    <p className="text-[10px] text-primary">
-                      Esta locación no tiene imagen de referencia; genérala en Escenarios para crear encuadres.
-                    </p>
-                  )}
-
-                  {newEncOpen && effLocation.imagePath && (
-                    <div className="space-y-1 rounded-md bg-surface-2 p-1.5">
-                      <Input
-                        className="h-7 text-xs"
-                        value={newEncLabel}
-                        onChange={(e) => setNewEncLabel(e.target.value)}
-                        placeholder="Etiqueta (p. ej. Cerrado en un cubículo)"
-                      />
-                      <Textarea
-                        className="min-h-12 text-xs"
-                        value={newEncFraming}
-                        onChange={(e) => setNewEncFraming(e.target.value)}
-                        placeholder="Describe la toma: ángulo/acercamiento (p. ej. «plano cerrado de un solo cubículo»)"
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="w-full"
-                        onClick={createEncuadre}
-                        disabled={busy || !newEncFraming.trim()}
-                      >
-                        {envBusy === "newenc" ? <Spinner /> : <Wand2 className="h-3 w-3" />} Generar encuadre
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
-          {/* Avanzado: ver/editar el prompt EXACTO que se envía al modelo. */}
-          <div className="rounded-md border border-dashed border-border p-1.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={() => (promptOpen ? setPromptOpen(false) : previewPrompt())}
-              disabled={promptBusy !== null}
-              title="Muestra el prompt que se enviará al modelo; puedes editarlo antes de generar."
-            >
-              {promptBusy === "preview" ? <Spinner /> : <Wand2 className="h-3 w-3" />}
-              {promptOpen ? "Ocultar prompt" : "Ver / editar prompt"}
-            </Button>
-            {promptOpen && (
-              <div className="mt-1.5 space-y-1">
-                <Textarea
-                  className="min-h-40 font-mono text-[11px] leading-snug"
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value)}
-                />
-                <p className="text-[10px] text-muted">
-                  Refleja la Acción y el «Momento del keyframe» actuales. Edítalo y genera con este texto tal cual.
-                </p>
-                <div className="flex gap-1">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="flex-1"
-                    onClick={generateWithPrompt}
-                    disabled={promptBusy !== null || !promptText.trim()}
-                  >
-                    {promptBusy === "generate" ? <Spinner /> : <ImageIcon className="h-3 w-3" />} Generar con este prompt
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={previewPrompt}
-                    disabled={promptBusy !== null}
-                    title="Recargar el prompt desde los campos actuales (descarta ediciones)."
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            onClick={openPrompt}
+            disabled={promptBusy !== null || busy}
+            title="Ver/editar el prompt exacto que se enviará al modelo."
+          >
+            {promptBusy === "preview" ? <Spinner /> : <Wand2 className="h-3 w-3" />} Ver / editar prompt
+          </Button>
         </div>
 
         <div className="space-y-2">
@@ -702,15 +625,27 @@ function ShotRow({
             />
           </div>
           <div>
-            <Label>Momento del keyframe</Label>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <Label className="mb-0">Momento del keyframe</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={suggestMoment}
+                disabled={busy}
+                title="Proponer con IA el instante exacto a congelar (podrás editarlo)."
+              >
+                {suggesting ? <Spinner /> : <Sparkles className="h-3 w-3" />} Proponer con IA
+              </Button>
+            </div>
             <Textarea
               className="min-h-12 text-sm"
               value={local.keyframeMoment}
               onChange={(e) => set("keyframeMoment", e.target.value)}
-              placeholder="Instante exacto a congelar (p. ej. «Sofía abre la puerta y su rostro se ilumina»). Si lo dejas vacío, se usa la Acción."
+              placeholder="Instante exacto a congelar. Usa «Proponer con IA» o escríbelo. Si lo dejas vacío, se usa la Acción."
             />
             <p className="mt-1 text-[11px] text-muted">
-              La Acción puede abarcar varios instantes; aquí eliges CUÁL frame se genera. Recuerda Guardar antes de generar.
+              La Acción puede abarcar varios instantes; aquí eliges CUÁL frame se genera.
             </p>
           </div>
           <div>
@@ -766,14 +701,21 @@ function ShotRow({
               </div>
             )}
             <p className="mt-1 text-[11px] text-muted">
-              Marca quién aparece en el encuadre (incluye a quien esté de espaldas u OTS para usar su referencia). Recuerda Guardar antes de generar.
+              Marca quién aparece en el encuadre (incluye a quien esté de espaldas u OTS para usar su referencia).
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={save} disabled={saving}>
-              {saving ? <Spinner /> : <Save className="h-4 w-4" />} Guardar
-            </Button>
-            <Button variant="ghost" size="sm" onClick={del}>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1 text-[11px] text-muted">
+              {saveState === "saving" ? (
+                <><Spinner className="h-3 w-3" /> Guardando…</>
+              ) : saveState === "saved" ? (
+                <><Check className="h-3 w-3 text-success" /> Guardado</>
+              ) : (
+                <>Autoguardado activo</>
+              )}
+            </span>
+            <div className="flex-1" />
+            <Button variant="ghost" size="sm" onClick={del} title="Eliminar plano">
               <Trash2 className="h-4 w-4 text-danger" />
             </Button>
           </div>
@@ -785,6 +727,163 @@ function ShotRow({
           )}
         </div>
       </CardContent>
+
+      {/* ── Modal: galería de encuadres ── */}
+      <Modal
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        title={effLocation ? `Encuadres de ${effLocation.name}` : "Encuadres"}
+        className="max-w-4xl"
+      >
+        {!effLocation ? (
+          <p className="text-sm text-muted">Este plano no tiene escenario asignado.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <EncuadreTile
+                label="Canónico"
+                imagePath={effLocation.imagePath}
+                active={local.encuadreId === null}
+                disabled={busy || !effLocation.imagePath}
+                onSelect={() => selectEncuadre(null)}
+                onZoom={setZoomSrc}
+              />
+              {effLocation.encuadres.map((enc) => (
+                <EncuadreTile
+                  key={enc.id}
+                  label={enc.label || "Encuadre"}
+                  imagePath={enc.imagePath}
+                  active={local.encuadreId === enc.id}
+                  disabled={busy}
+                  onSelect={() => selectEncuadre(enc.id)}
+                  onZoom={setZoomSrc}
+                />
+              ))}
+              <button
+                type="button"
+                disabled={busy || !effLocation.imagePath}
+                onClick={() => setNewEncOpen((v) => !v)}
+                className="flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-xs text-muted hover:border-primary disabled:opacity-50"
+                title={effLocation.imagePath ? "Generar otra toma de esta locación" : "Genera antes la imagen de referencia en Escenarios"}
+              >
+                <Plus className="h-5 w-5" /> Nuevo encuadre
+              </button>
+            </div>
+
+            {!effLocation.imagePath && (
+              <p className="text-xs text-primary">
+                Esta locación no tiene imagen de referencia; genérala en Escenarios para crear encuadres.
+              </p>
+            )}
+
+            {newEncOpen && effLocation.imagePath && (
+              <div className="space-y-2 rounded-md border border-border bg-surface-2 p-3">
+                <Label className="mb-0 text-xs">Nuevo encuadre (otra toma del mismo lugar)</Label>
+                <Input
+                  value={newEncLabel}
+                  onChange={(e) => setNewEncLabel(e.target.value)}
+                  placeholder="Etiqueta (p. ej. Cerrado en un cubículo)"
+                />
+                <Textarea
+                  className="min-h-20"
+                  value={newEncFraming}
+                  onChange={(e) => setNewEncFraming(e.target.value)}
+                  placeholder="Describe la toma: ángulo/acercamiento (p. ej. «plano cerrado de un solo cubículo, de frente»)"
+                />
+                <Button onClick={createEncuadre} disabled={busy || !newEncFraming.trim()}>
+                  {envBusy === "newenc" ? <Spinner /> : <Wand2 className="h-4 w-4" />} Generar encuadre
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal: ver/editar prompt ── */}
+      <Modal
+        open={promptOpen}
+        onClose={() => setPromptOpen(false)}
+        title="Prompt del keyframe"
+        className="max-w-3xl"
+      >
+        <div className="space-y-2">
+          <p className="text-xs text-muted">
+            Refleja la Acción y el «Momento del keyframe» actuales. Edítalo y genera con este texto tal cual.
+          </p>
+          <Textarea
+            className="min-h-[50vh] font-mono text-xs leading-snug"
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button onClick={generateWithPrompt} disabled={promptBusy !== null || !promptText.trim()}>
+              {promptBusy === "generate" ? <Spinner /> : <ImageIcon className="h-4 w-4" />} Generar con este prompt
+            </Button>
+            <Button variant="outline" onClick={openPrompt} disabled={promptBusy !== null} title="Recargar desde los campos actuales (descarta ediciones).">
+              <RefreshCw className="h-4 w-4" /> Recargar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Lightbox para miniaturas de la galería ── */}
+      <Modal open={!!zoomSrc} onClose={() => setZoomSrc(null)} title="Vista ampliada" className="max-w-5xl">
+        {zoomSrc && (
+          <img src={mediaUrl(zoomSrc)} alt="" className="mx-auto max-h-[80vh] w-auto rounded-md object-contain" />
+        )}
+      </Modal>
     </Card>
+  );
+}
+
+function EncuadreTile({
+  label,
+  imagePath,
+  active,
+  disabled,
+  onSelect,
+  onZoom,
+}: {
+  label: string;
+  imagePath: string | null;
+  active: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+  onZoom: (path: string) => void;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-md border ${
+        active ? "border-primary ring-2 ring-primary" : "border-border"
+      } ${imagePath ? "" : "opacity-60"}`}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onSelect}
+        className="block w-full"
+        title="Usar este encuadre"
+      >
+        {imagePath ? (
+          <img src={mediaUrl(imagePath)} alt={label} className="aspect-video w-full object-cover" />
+        ) : (
+          <div className="flex aspect-video w-full items-center justify-center text-xs text-muted">sin imagen</div>
+        )}
+      </button>
+      {imagePath && (
+        <button
+          type="button"
+          onClick={() => onZoom(imagePath)}
+          className="absolute right-1 top-1 rounded bg-black/50 p-1 text-white hover:bg-black/70"
+          title="Ampliar"
+        >
+          <Images className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <div className="flex items-center gap-1 truncate px-1.5 py-1 text-xs">
+        {active && <Check className="h-3 w-3 shrink-0 text-primary" />}
+        <span className="truncate">{label}</span>
+      </div>
+    </div>
   );
 }

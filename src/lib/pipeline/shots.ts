@@ -267,3 +267,47 @@ export function buildGeminiVideoPrompt(params: {
     .filter(Boolean)
     .join("\n");
 }
+
+/**
+ * Propone el INSTANTE EXACTO a congelar como keyframe de un plano (una frase
+ * breve y concreta), a partir de la acción + escena + reparto. El usuario luego
+ * lo edita. Usa gpt-4.1 (rápido, JSON).
+ */
+export async function suggestKeyframeMoment(input: {
+  actionDescription: string;
+  sceneHeading: string;
+  sceneSummary: string;
+  cameraNotes: string;
+  characters: string[];
+  language: string;
+}): Promise<string> {
+  const lang = promptLangName(input.language);
+  const system = [
+    "Eres director de cine y eliges el INSTANTE EXACTO a congelar como fotograma inicial (keyframe) de un plano.",
+    `Escribe en ${lang} UNA sola frase breve y concreta (máx ~20 palabras), en presente.`,
+    "Describe un momento visual claro (postura, gesto, expresión o acción puntual), NO un resumen de toda la acción.",
+    "Devuelves EXCLUSIVAMENTE un objeto JSON válido, sin texto adicional ni fences.",
+  ].join(" ");
+  const user = [
+    input.cameraNotes ? `Cámara: ${input.cameraNotes}` : "",
+    input.characters.length
+      ? `Personajes en cuadro: ${input.characters.join(", ")}`
+      : "Sin personajes en cuadro (plano de ambiente/detalle).",
+    `Escena: ${input.sceneHeading}. ${input.sceneSummary}`.trim(),
+    `Acción del plano: ${input.actionDescription}`,
+    "",
+    'Devuelve JSON: { "moment": string }',
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return withRetry(
+    async () => {
+      const { text } = await generateStructured({ system, user, jsonMode: true, maxTokens: 200 });
+      const raw = extractJson<{ moment?: string }>(text);
+      const moment = (raw?.moment || "").toString().trim();
+      if (!moment) throw new Error("Propuesta vacía");
+      return moment;
+    },
+    { attempts: 2 },
+  );
+}
