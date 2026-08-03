@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Users,
@@ -9,10 +9,11 @@ import {
   Trash2,
   Lock,
   Unlock,
-  Save,
   ImagePlus,
   AlertCircle,
   X,
+  Download,
+  Check,
 } from "lucide-react";
 import type { CharacterDTO } from "@/lib/dto";
 import type { ReferenceImage } from "@/lib/serialize";
@@ -21,15 +22,37 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea, Label } from "@/components/ui/field";
 import { Badge, Spinner } from "@/components/ui/misc";
+import { ImageZoom } from "@/components/ui/modal";
 
 const KIND_LABEL: Record<string, string> = {
   portrait: "Retrato",
   full_body: "Cuerpo",
   three_quarter: "3/4",
 };
+// Token seguro para el nombre de archivo (sin "/").
+const KIND_FILE: Record<string, string> = {
+  portrait: "retrato",
+  full_body: "cuerpo",
+  three_quarter: "tres-cuartos",
+};
 
 function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function slugify(s: string) {
+  return (
+    s
+      .normalize("NFD")
+      .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "personaje"
+  );
+}
+function refFilename(name: string, kind: string, path: string) {
+  const ext = (path.split(".").pop() || "png").toLowerCase();
+  return `${slugify(name)}-${KIND_FILE[kind] || kind}.${ext}`;
 }
 
 export function CharactersManager({
@@ -151,29 +174,41 @@ function CharacterCard({
   onPatchLocal: (cid: string, patch: Partial<CharacterDTO>) => void;
   onDeleted: () => void;
 }) {
-  const [saving, setSaving] = useState(false);
   const [genKind, setGenKind] = useState<string | null>(null);
   const [useRefs, setUseRefs] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
 
-  async function saveFields() {
-    setSaving(true);
+  // ── Autoguardado (debounce) de los campos de texto ──
+  async function persist(cur: CharacterDTO) {
+    setSaveState("saving");
     setError(null);
     try {
       await jsonFetch(`/api/projects/${projectId}/characters/${character.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          name: character.name,
-          role: character.role,
-          canonicalDescription: character.canonicalDescription,
-          personality: character.personality,
+          name: cur.name,
+          role: cur.role,
+          canonicalDescription: cur.canonicalDescription,
+          personality: cur.personality,
         }),
       });
+      setSaveState("saved");
+      setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
+      setSaveState("idle");
     }
+  }
+  function scheduleSave(next: CharacterDTO) {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => persist(next), 700);
+  }
+  function update(patch: Partial<CharacterDTO>) {
+    onPatchLocal(character.id, patch);
+    scheduleSave({ ...character, ...patch });
   }
 
   async function toggleLock() {
@@ -217,7 +252,7 @@ function CharacterCard({
     onDeleted();
   }
 
-  const busy = saving || genKind !== null;
+  const busy = genKind !== null;
 
   return (
     <Card>
@@ -228,7 +263,7 @@ function CharacterCard({
             <Input
               className="font-semibold"
               value={character.name}
-              onChange={(e) => onPatchLocal(character.id, { name: e.target.value })}
+              onChange={(e) => update({ name: e.target.value })}
               placeholder="Nombre"
             />
             <Button
@@ -247,7 +282,7 @@ function CharacterCard({
             <Label>Rol</Label>
             <Input
               value={character.role}
-              onChange={(e) => onPatchLocal(character.id, { role: e.target.value })}
+              onChange={(e) => update({ role: e.target.value })}
               placeholder="Protagonista, antagonista…"
             />
           </div>
@@ -256,9 +291,7 @@ function CharacterCard({
             <Textarea
               className="min-h-28 text-sm"
               value={character.canonicalDescription}
-              onChange={(e) =>
-                onPatchLocal(character.id, { canonicalDescription: e.target.value })
-              }
+              onChange={(e) => update({ canonicalDescription: e.target.value })}
               placeholder="Edad, complexión, cabello, rasgos, vestuario concreto…"
             />
           </div>
@@ -267,12 +300,18 @@ function CharacterCard({
             <Textarea
               className="min-h-14 text-sm"
               value={character.personality}
-              onChange={(e) => onPatchLocal(character.id, { personality: e.target.value })}
+              onChange={(e) => update({ personality: e.target.value })}
             />
           </div>
-          <Button variant="secondary" size="sm" onClick={saveFields} disabled={busy}>
-            {saving ? <Spinner /> : <Save className="h-4 w-4" />} Guardar
-          </Button>
+          <span className="flex items-center gap-1 text-[11px] text-muted">
+            {saveState === "saving" ? (
+              <><Spinner className="h-3 w-3" /> Guardando…</>
+            ) : saveState === "saved" ? (
+              <><Check className="h-3 w-3 text-success" /> Guardado</>
+            ) : (
+              <>Autoguardado activo</>
+            )}
+          </span>
           {error && (
             <div className="flex items-start gap-2 rounded-md bg-danger/10 p-2 text-xs text-danger">
               <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -294,22 +333,37 @@ function CharacterCard({
               </div>
             )}
             {character.referenceImages.map((r) => (
-              <div key={r.path} className="group relative">
-                <img
+              <div
+                key={r.path}
+                className="group relative overflow-hidden rounded-md border border-border"
+              >
+                <ImageZoom
                   src={mediaUrl(r.path)}
-                  alt={r.kind}
-                  className="aspect-square w-full rounded-md border border-border object-cover"
+                  alt={KIND_LABEL[r.kind] || r.kind}
+                  caption={`${character.name} · ${KIND_LABEL[r.kind] || r.kind}`}
+                  className="aspect-square w-full"
                 />
-                <span className="absolute bottom-1 left-1 rounded bg-background/80 px-1 text-[10px]">
+                <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-background/80 px-1 text-[10px]">
                   {KIND_LABEL[r.kind] || r.kind}
                 </span>
-                <button
-                  onClick={() => removeImage(r.path)}
-                  className="absolute right-1 top-1 rounded-full bg-background/80 p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  title="Eliminar"
-                >
-                  <X className="h-3 w-3 text-danger" />
-                </button>
+                <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <a
+                    href={mediaUrl(r.path)}
+                    download={refFilename(character.name, r.kind, r.path)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded-full bg-background/80 p-1 hover:bg-background"
+                    title="Descargar"
+                  >
+                    <Download className="h-3 w-3" />
+                  </a>
+                  <button
+                    onClick={() => removeImage(r.path)}
+                    className="rounded-full bg-background/80 p-1 hover:bg-background"
+                    title="Eliminar"
+                  >
+                    <X className="h-3 w-3 text-danger" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -324,7 +378,7 @@ function CharacterCard({
           </label>
 
           <div className="flex flex-wrap gap-2">
-            {(["portrait", "full_body", "three_quarter"] as const).map((k) => (
+            {(["portrait", "full_body"] as const).map((k) => (
               <Button
                 key={k}
                 variant="outline"
@@ -332,11 +386,14 @@ function CharacterCard({
                 onClick={() => generate(k)}
                 disabled={busy}
               >
-                {genKind === k ? <Spinner /> : <ImagePlus className="h-3 w-3" />}{" "}
-                {KIND_LABEL[k]}
+                {genKind === k ? <Spinner /> : <ImagePlus className="h-3 w-3" />} {KIND_LABEL[k]}
               </Button>
             ))}
           </div>
+          <p className="text-[11px] text-muted">
+            Genera el <strong>retrato</strong> y el <strong>cuerpo entero</strong>: son el
+            ancla de identidad al componer los keyframes (componer usa el cuerpo; directo, ambos).
+          </p>
         </div>
       </CardContent>
     </Card>

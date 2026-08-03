@@ -56,11 +56,11 @@ export async function POST(req: Request, { params }: Ctx) {
     }
 
     // Referencias ETIQUETADAS por personaje. En COMPONER 1 por personaje
-    // (cuerpo entero) para no mezclar identidades; en DIRECTO hasta 2.
+    // (cuerpo entero) para no mezclar identidades; en DIRECTO hasta 2 (retrato + cuerpo).
     const kindRank: Record<string, number> =
       mode === "direct"
-        ? { portrait: 0, full_body: 1, three_quarter: 2 }
-        : { full_body: 0, three_quarter: 1, portrait: 2 };
+        ? { portrait: 0, full_body: 1 }
+        : { full_body: 0, portrait: 1 };
     const maxRefs = mode === "direct" ? 2 : 1;
     const labeledReferences: { label: string; images: InputImage[] }[] = [];
     const flatRefs: InputImage[] = [];

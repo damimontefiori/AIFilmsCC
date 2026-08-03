@@ -16,7 +16,6 @@ type Ctx = { params: Promise<{ id: string; cid: string }> };
 const ASPECT: Record<ReferenceKind, string> = {
   portrait: "1:1",
   full_body: "9:16",
-  three_quarter: "1:1",
 };
 
 export async function POST(req: Request, { params }: Ctx) {
@@ -27,7 +26,7 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
   const body = await req.json().catch(() => ({}));
-  const kind: ReferenceKind = ["portrait", "full_body", "three_quarter"].includes(body.kind)
+  const kind: ReferenceKind = ["portrait", "full_body"].includes(body.kind)
     ? body.kind
     : "portrait";
   const useReferences = body.useReferences !== false; // por defecto true

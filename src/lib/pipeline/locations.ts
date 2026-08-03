@@ -140,11 +140,12 @@ export function buildEncuadrePrompt(params: {
   aspectRatio: string;
 }): string {
   return [
-    `Photorealistic cinematic frame of the SAME film location shown in the reference image, but from a DIFFERENT camera setup. Aspect ratio ${params.aspectRatio}, filmic. NO people.`,
+    `Photorealistic cinematic frame — a NEW camera shot of an existing film location. Aspect ratio ${params.aspectRatio}, filmic. NO people.`,
+    // El ENCUADRE va primero y con énfasis: debe MANDAR sobre la referencia.
+    `REQUESTED SHOT — compose a NEW image with THIS exact framing; do NOT reproduce the reference image's composition: ${params.framing}.`,
     `LOCATION: ${params.locationName}.`,
-    `NEW CAMERA FRAMING (only the camera changes — it is the very same place): ${params.framing}.`,
-    "KEEP IDENTICAL to the reference image: architecture, spatial layout, materials, colors, lighting and every prop. Do NOT invent a different room and do NOT move or replace objects.",
-    params.bible ? `INVARIANTS that must match exactly: ${params.bible}` : "",
+    "The attached image is a REFERENCE ONLY for how the place LOOKS (architecture, materials, colors, props, lighting). MATCH that look, but the camera angle, distance and composition MUST follow the REQUESTED SHOT above — NOT the reference's framing. Same place, different camera.",
+    params.bible ? `Keep these materials/props/lighting consistent with the place: ${params.bible}` : "",
     params.styleBible ? `VISUAL STYLE (obey strictly): ${params.styleBible}` : "",
     REALISM_DIRECTIVE,
     `No people, no characters. Cohesive cinematic lighting. No text, no watermark, no logos. Family-friendly. Avoid: ${SAFE_NEGATIVES}.`,

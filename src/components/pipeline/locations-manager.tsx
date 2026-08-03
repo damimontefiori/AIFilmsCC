@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea, Label } from "@/components/ui/field";
 import { Badge, Spinner } from "@/components/ui/misc";
+import { FRAMING_TEMPLATES, FRAMING_PLACEHOLDER, FRAMING_HELP } from "@/lib/framings";
 
 function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -330,17 +331,31 @@ function LocationCard({
             )}
             {location.imagePath && (
               <div className="space-y-1 rounded-md bg-surface-2 p-1.5">
+                <p className="text-[11px] text-muted">{FRAMING_HELP}</p>
                 <Input
                   className="h-7 text-xs"
                   value={newEncLabel}
                   onChange={(e) => setNewEncLabel(e.target.value)}
-                  placeholder="Etiqueta (p. ej. Cerrado en un cubículo)"
+                  placeholder="Nombre corto para reconocerlo (p. ej. Acercamiento a la mesa)"
                 />
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] text-muted">Empezar con:</span>
+                  {FRAMING_TEMPLATES.map((t) => (
+                    <button
+                      key={t.label}
+                      type="button"
+                      onClick={() => setNewEncFraming(t.text)}
+                      className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted hover:border-primary hover:text-primary"
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
                 <Textarea
-                  className="min-h-12 text-xs"
+                  className="min-h-16 text-xs"
                   value={newEncFraming}
                   onChange={(e) => setNewEncFraming(e.target.value)}
-                  placeholder="Describe la toma: ángulo/acercamiento (p. ej. «plano cerrado de un solo cubículo»)"
+                  placeholder={FRAMING_PLACEHOLDER}
                 />
                 <Button variant="secondary" size="sm" className="w-full" onClick={createEncuadre} disabled={busy || !newEncFraming.trim()}>
                   {encBusy === "new" ? <Spinner /> : <Plus className="h-3 w-3" />} Nuevo encuadre

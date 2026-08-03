@@ -64,15 +64,13 @@ export async function extractCharacters(input: {
   }, { attempts: 3 });
 }
 
-export type ReferenceKind = "portrait" | "full_body" | "three_quarter";
+export type ReferenceKind = "portrait" | "full_body";
 
 const KIND_DIRECTIVE: Record<ReferenceKind, string> = {
   portrait:
-    "Head-and-shoulders portrait, front view, neutral facial expression, looking at camera.",
+    "TIGHT HEAD-AND-SHOULDERS PORTRAIT (close-up): framed from the upper chest up, the face centered and filling most of the frame, front view, sharp focus on the eyes, neutral expression. Do NOT show the full body, waist, hips, legs or feet — only head, shoulders and upper chest.",
   full_body:
-    "Full-body shot, standing in a neutral relaxed pose, full figure visible head to toe.",
-  three_quarter:
-    "Three-quarter body shot from a slight side angle, showing outfit and posture.",
+    "Full-body shot, standing in a neutral relaxed pose, the full figure visible from head to feet.",
 };
 
 /**
@@ -88,10 +86,11 @@ export function buildReferencePrompt(params: {
 }): string {
   const parts = [
     "Character reference sheet image for film production. Single character only, no text, no labels.",
-    KIND_DIRECTIVE[params.kind],
-    "Plain neutral light-gray studio background, soft even lighting, sharp focus, consistent identity.",
+    // El encuadre va PRIMERO y con énfasis para que mande sobre cualquier referencia.
+    `FRAMING (obey strictly): ${KIND_DIRECTIVE[params.kind]}`,
+    "Isolated on a solid PURE WHITE background (#FFFFFF): no scenery, no props, no floor shadow. Soft even studio lighting, sharp focus, consistent identity.",
     params.withReferences
-      ? "Keep the SAME identity, face and outfit as the provided reference image(s); only change the pose/framing."
+      ? "Keep the SAME identity, face and outfit as the provided reference image(s), but RE-FRAME strictly as specified above — the reference images may show a DIFFERENT framing; follow the requested framing, NOT theirs."
       : "",
     "",
     `Character description: ${params.canonicalDescription}`,

@@ -21,6 +21,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea, Label, Select } from "@/components/ui/field";
 import { Badge, Spinner } from "@/components/ui/misc";
 import { Modal, ImageZoom } from "@/components/ui/modal";
+import { FRAMING_TEMPLATES, FRAMING_PLACEHOLDER, FRAMING_HELP } from "@/lib/framings";
 
 function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -779,16 +780,30 @@ function ShotRow({
             {newEncOpen && effLocation.imagePath && (
               <div className="space-y-2 rounded-md border border-border bg-surface-2 p-3">
                 <Label className="mb-0 text-xs">Nuevo encuadre (otra toma del mismo lugar)</Label>
+                <p className="text-[11px] text-muted">{FRAMING_HELP}</p>
                 <Input
                   value={newEncLabel}
                   onChange={(e) => setNewEncLabel(e.target.value)}
-                  placeholder="Etiqueta (p. ej. Cerrado en un cubículo)"
+                  placeholder="Nombre corto para reconocerlo (p. ej. Acercamiento a la mesa)"
                 />
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] text-muted">Empezar con:</span>
+                  {FRAMING_TEMPLATES.map((t) => (
+                    <button
+                      key={t.label}
+                      type="button"
+                      onClick={() => setNewEncFraming(t.text)}
+                      className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted hover:border-primary hover:text-primary"
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
                 <Textarea
                   className="min-h-20"
                   value={newEncFraming}
                   onChange={(e) => setNewEncFraming(e.target.value)}
-                  placeholder="Describe la toma: ángulo/acercamiento (p. ej. «plano cerrado de un solo cubículo, de frente»)"
+                  placeholder={FRAMING_PLACEHOLDER}
                 />
                 <Button onClick={createEncuadre} disabled={busy || !newEncFraming.trim()}>
                   {envBusy === "newenc" ? <Spinner /> : <Wand2 className="h-4 w-4" />} Generar encuadre
