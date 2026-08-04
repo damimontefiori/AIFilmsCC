@@ -28,7 +28,7 @@ export function ScriptModelPicker({
         {hint && <p className="text-xs text-muted">{hint}</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <Label>Modelo del guion</Label>
+            <Label>Modelo de IA (texto)</Label>
             <Select value={model} onChange={(e) => setModel(e.target.value)}>
               {SCRIPT_MODELS.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -36,6 +36,9 @@ export function ScriptModelPicker({
                 </option>
               ))}
             </Select>
+            <p className="mt-1 text-[11px] text-muted">
+              Se usa para todo el texto con IA: guion, personajes, escenarios, planos y sugerencias.
+            </p>
           </div>
           {opt?.needsApiKey && (
             <div>

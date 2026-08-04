@@ -168,3 +168,14 @@ model Export {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
+
+// Override en runtime de la configuración de proveedores (endpoints, deployments
+// y API keys). Es un almacén clave-valor donde `key` es el MISMO nombre que la
+// variable de entorno (p.ej. FOUNDRY_NARRATIVE_KEY). config.ts lee DB ?? env.
+// Uso local monousuario: las keys se guardan en claro (mismo modelo de amenaza
+// que .env.local); nunca se exponen al cliente sin enmascarar.
+model ProviderSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

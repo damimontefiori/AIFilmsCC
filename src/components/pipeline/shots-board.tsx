@@ -589,18 +589,50 @@ function ShotRow({
                 </p>
               )}
 
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                onClick={() => {
-                  setNewEncOpen(false);
-                  setGalleryOpen(true);
-                }}
-                disabled={busy || !effLocation}
-              >
-                <Images className="h-3 w-3" /> Cambiar encuadre
-              </Button>
+              {encMatches ? (
+                <div className="space-y-1">
+                  <p className="px-1 text-[10px] text-muted">
+                    Toma fija por el encuadre. «Cámara» solo afecta al clip.
+                  </p>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => { setNewEncOpen(false); setGalleryOpen(true); }}
+                      disabled={busy || !effLocation}
+                    >
+                      <Images className="h-3 w-3" /> Cambiar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => selectEncuadre(null)}
+                      disabled={busy}
+                      title="Volver a componer según el campo «Cámara»."
+                    >
+                      Quitar encuadre
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="px-1 text-[10px] text-muted">
+                    La toma la define el campo <strong>«Cámara»</strong> (a la derecha); se compone sobre el escenario.
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => { setNewEncOpen(false); setGalleryOpen(true); }}
+                    disabled={busy || !effLocation}
+                    title="Elegir un encuadre existente o crear uno nuevo (para reutilizar una toma en varios planos)."
+                  >
+                    <Images className="h-3 w-3" /> Usar o crear un encuadre
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
@@ -650,10 +682,28 @@ function ShotRow({
             </p>
           </div>
           <div>
-            <Label>Cámara</Label>
-            <Input value={local.cameraNotes} onChange={(e) => set("cameraNotes", e.target.value)} />
+            <Label>Cámara / toma</Label>
+            <div className="mb-1 flex flex-wrap items-center gap-1">
+              <span className="text-[10px] text-muted">Toma:</span>
+              {FRAMING_TEMPLATES.map((t) => (
+                <button
+                  key={t.label}
+                  type="button"
+                  onClick={() => set("cameraNotes", t.text)}
+                  className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted hover:border-primary hover:text-primary"
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <Input
+              value={local.cameraNotes}
+              onChange={(e) => set("cameraNotes", e.target.value)}
+              placeholder="Plano + movimiento. P. ej. «vista general, cámara fija» o «acercamiento, dolly suave»"
+            />
             <p className="mt-1 text-[11px] text-muted">
-              Duración de clip: {local.durationSec}s (fija — Gemini Omni genera ~10s).
+              Define el <strong>plano del keyframe</strong> cuando NO usas un encuadre, y el
+              movimiento para el clip. Duración fija ~10s.
             </p>
           </div>
           <div>

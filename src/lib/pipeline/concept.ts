@@ -1,4 +1,4 @@
-import { generateStructured, extractJson } from "@/lib/providers/text";
+import { generateStructured, extractJson, type TextModelChoice } from "@/lib/providers/text";
 import { promptLangName } from "@/lib/languages";
 import { withRetry } from "@/lib/utils";
 import { RefinedConceptSchema, type RefinedConcept } from "./types";
@@ -16,7 +16,10 @@ export type ConceptInput = {
  * Expande una idea vaga a un concepto de película: título, logline, sinopsis,
  * género, tono y una "biblia de estilo" visual (clave para consistencia).
  */
-export async function refineConcept(input: ConceptInput): Promise<RefinedConcept> {
+export async function refineConcept(
+  input: ConceptInput,
+  choice?: TextModelChoice,
+): Promise<RefinedConcept> {
   const lang = promptLangName(input.language);
   const system = [
     "Eres un guionista y director de cine galardonado, con criterio de festival.",
@@ -59,12 +62,10 @@ export async function refineConcept(input: ConceptInput): Promise<RefinedConcept
   // (lento, hasta ~15 min) se reserva para el guion completo.
   // Reintenta ante fallos transitorios (5xx) o JSON malformado.
   return withRetry(async () => {
-    const { text } = await generateStructured({
-      system,
-      user,
-      jsonMode: true,
-      maxTokens: 4000,
-    });
+    const { text } = await generateStructured(
+      { system, user, jsonMode: true, maxTokens: 4000 },
+      choice,
+    );
     const raw = extractJson<unknown>(text);
     return RefinedConceptSchema.parse(raw);
   }, { attempts: 3 });

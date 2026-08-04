@@ -3,6 +3,7 @@ import { getProject, updateProject } from "@/lib/projects";
 import { refineConcept } from "@/lib/pipeline/concept";
 import { generateScript } from "@/lib/pipeline/script";
 import { scriptToMarkdown } from "@/lib/pipeline/types";
+import { projectTextChoice } from "@/lib/model-choice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,17 +23,18 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
   const body = await req.json().catch(() => ({}));
-  const scriptModel: string =
-    (typeof body.model === "string" && body.model) || project.scriptModel;
-  const apiKey: string | undefined =
-    typeof body.apiKey === "string" ? body.apiKey : undefined;
+  const choice = projectTextChoice(project, body.model, body.apiKey);
+  const scriptModel = choice.model || project.scriptModel;
   try {
-    const concept = await refineConcept({
-      idea: project.idea,
-      language: project.language,
-      genre: project.genre || undefined,
-      tone: project.tone || undefined,
-    });
+    const concept = await refineConcept(
+      {
+        idea: project.idea,
+        language: project.language,
+        genre: project.genre || undefined,
+        tone: project.tone || undefined,
+      },
+      choice,
+    );
     const isDefaultTitle =
       !project.title || project.title === "Proyecto sin título";
 
@@ -48,8 +50,8 @@ export async function POST(req: Request, { params }: Ctx) {
         language: project.language,
         targetDurationSec: project.targetDurationSec,
       },
-      // Modelo elegido para el guion (por defecto el del proyecto; key opcional).
-      { model: scriptModel, apiKey },
+      // Modelo elegido (por defecto el del proyecto; key opcional).
+      choice,
     );
     const markdown = scriptToMarkdown(doc);
 

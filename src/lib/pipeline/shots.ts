@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateStructured, extractJson } from "@/lib/providers/text";
+import { generateStructured, extractJson, type TextModelChoice } from "@/lib/providers/text";
 import { promptLangName } from "@/lib/languages";
 import { withRetry } from "@/lib/utils";
 import { estimateClipCount, type ScriptDoc } from "./types";
@@ -28,11 +28,14 @@ export type BreakdownScene = z.infer<typeof BreakdownSceneSchema>;
  * Divide el guion en planos (~10s) listos para generar como clips.
  * Usa gpt-4.1 (rápido, JSON).
  */
-export async function breakdownShots(input: {
-  script: ScriptDoc;
-  language: string;
-  targetDurationSec: number;
-}): Promise<BreakdownScene[]> {
+export async function breakdownShots(
+  input: {
+    script: ScriptDoc;
+    language: string;
+    targetDurationSec: number;
+  },
+  choice?: TextModelChoice,
+): Promise<BreakdownScene[]> {
   const lang = promptLangName(input.language);
   const totalClips = estimateClipCount(input.targetDurationSec);
 
@@ -86,12 +89,10 @@ export async function breakdownShots(input: {
   ].join("\n");
 
   return withRetry(async () => {
-    const { text } = await generateStructured({
-      system,
-      user,
-      jsonMode: true,
-      maxTokens: 8000,
-    });
+    const { text } = await generateStructured(
+      { system, user, jsonMode: true, maxTokens: 8000 },
+      choice,
+    );
     const raw = extractJson<{ scenes?: unknown[] }>(text);
     const scenes = Array.isArray(raw?.scenes) ? raw.scenes : [];
     const result = scenes
@@ -183,14 +184,18 @@ export function buildKeyframePrompt(params: {
 }
 
 /**
- * Prompt de COMPOSICIÓN: instruye a editar una imagen base (ambiente ya
- * generado) para INSERTAR a los personajes dentro, de forma fiable.
+ * Prompt de COMPOSICIÓN: inserta a los personajes en la imagen base del lugar.
+ *
+ * - Sin `cameraFraming` (base = ENCUADRE ya encuadrado): se conserva la
+ *   composición del encuadre; solo se añaden las personas.
+ * - Con `cameraFraming` (base = imagen CANÓNICA del escenario): se permite
+ *   RE-ENCUADRAR la toma según la cámara indicada, manteniendo el look del lugar.
  */
 export function buildCompositePrompt(params: {
   characterDescriptions: { name: string; description: string }[];
   actionDescription: string;
   keyframeMoment?: string; // instante exacto a congelar; si vacío, se usa la acción entera
-  cameraNotes: string;
+  cameraFraming?: string; // toma/cámara; si viene, la composición PUEDE reencuadrarse
   genre: string;
   tone: string;
   aspectRatio: string;
@@ -200,17 +205,23 @@ export function buildCompositePrompt(params: {
     .map((c) => `- ${c.name}: ${c.description}`)
     .join("\n");
   const moodBits = [params.genre, params.tone].filter(Boolean).join(" · ");
+  const reframe = !!params.cameraFraming?.trim();
 
   return [
-    `EDIT the provided base image (a photographed film location). Add ${names.join(" and ")} INTO that scene as real photographed people, seamlessly integrated — match the base image's lighting, color, grain, depth of field and perspective. Aspect ratio ${params.aspectRatio}, photorealistic.`,
-    `EXACTLY ${names.length} ${names.length === 1 ? "person" : "people"} added: ${names.join(", ")}. Each appears once — no duplicates, no extra people.`,
+    reframe
+      ? `Using the provided base image as the LOCATION reference, create a photorealistic cinematic film still with ${names.join(" and ")} in it. Match the location's look (architecture, objects, materials, colors, lighting) but you MAY reframe/crop/zoom/change the angle to achieve the requested shot. Aspect ratio ${params.aspectRatio}.`
+      : `EDIT the provided base image (a photographed film location). Add ${names.join(" and ")} INTO that scene as real photographed people, seamlessly integrated — match the base image's lighting, color, grain, depth of field and perspective. Aspect ratio ${params.aspectRatio}, photorealistic.`,
+    reframe ? `SHOT / CAMERA (frame the still exactly like this): ${params.cameraFraming!.trim()}.` : "",
+    `EXACTLY ${names.length} ${names.length === 1 ? "person" : "people"}: ${names.join(", ")}. Each appears once — no duplicates, no extra people.`,
     `Reproduce each person's face, hairstyle and full wardrobe EXACTLY from their labeled reference (${names.join(", ")}). Even when a person is seen from BEHIND or in profile, keep their exact hair color/style, wardrobe and silhouette so they remain recognizable.`,
     `PEOPLE IN FRAME:\n${charBlock}`,
     params.keyframeMoment?.trim()
       ? `KEY MOMENT / POSE (depict EXACTLY this instant): ${params.keyframeMoment.trim()}.`
       : `ACTION / POSE: ${params.actionDescription}.`,
     moodBits ? `Their expressions and body language convey: ${moodBits}.` : "",
-    `Keep the environment, its objects, composition and framing UNCHANGED; only add the people. ${names.join(" and ")} MUST be clearly visible and correctly scaled in the result.`,
+    reframe
+      ? `Keep the LOCATION's objects, materials, colors and lighting consistent with the reference, but FRAME the shot as specified above. ${names.join(" and ")} MUST be clearly visible and correctly scaled.`
+      : `Keep the environment, its objects, composition and framing UNCHANGED; only add the people. ${names.join(" and ")} MUST be clearly visible and correctly scaled in the result.`,
     REALISM_DIRECTIVE,
     `No text, no captions, no watermark. Family-friendly. Avoid: ${SAFE_NEGATIVES}.`,
   ]
@@ -273,14 +284,17 @@ export function buildGeminiVideoPrompt(params: {
  * breve y concreta), a partir de la acción + escena + reparto. El usuario luego
  * lo edita. Usa gpt-4.1 (rápido, JSON).
  */
-export async function suggestKeyframeMoment(input: {
-  actionDescription: string;
-  sceneHeading: string;
-  sceneSummary: string;
-  cameraNotes: string;
-  characters: string[];
-  language: string;
-}): Promise<string> {
+export async function suggestKeyframeMoment(
+  input: {
+    actionDescription: string;
+    sceneHeading: string;
+    sceneSummary: string;
+    cameraNotes: string;
+    characters: string[];
+    language: string;
+  },
+  choice?: TextModelChoice,
+): Promise<string> {
   const lang = promptLangName(input.language);
   const system = [
     "Eres director de cine y eliges el INSTANTE EXACTO a congelar como fotograma inicial (keyframe) de un plano.",
@@ -302,7 +316,10 @@ export async function suggestKeyframeMoment(input: {
     .join("\n");
   return withRetry(
     async () => {
-      const { text } = await generateStructured({ system, user, jsonMode: true, maxTokens: 200 });
+      const { text } = await generateStructured(
+        { system, user, jsonMode: true, maxTokens: 200 },
+        choice,
+      );
       const raw = extractJson<{ moment?: string }>(text);
       const moment = (raw?.moment || "").toString().trim();
       if (!moment) throw new Error("Propuesta vacía");

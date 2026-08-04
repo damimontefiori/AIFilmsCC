@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Clapperboard, Activity } from "lucide-react";
+import { Clapperboard, Activity, Settings } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -35,6 +35,13 @@ export default function RootLayout({
               >
                 <Activity className="h-4 w-4" />
                 Estado
+              </Link>
+              <Link
+                href="/settings"
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-muted hover:bg-surface-2 hover:text-foreground"
+              >
+                <Settings className="h-4 w-4" />
+                Configuración
               </Link>
             </nav>
           </div>

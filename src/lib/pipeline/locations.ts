@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateStructured, extractJson } from "@/lib/providers/text";
+import { generateStructured, extractJson, type TextModelChoice } from "@/lib/providers/text";
 import { promptLangName } from "@/lib/languages";
 import { withRetry } from "@/lib/utils";
 import { REALISM_DIRECTIVE, SAFE_NEGATIVES } from "./safety";
@@ -15,11 +15,14 @@ export type ExtractedLocation = z.infer<typeof ExtractedLocationSchema>;
  * detallada del ambiente y de los OBJETOS/props que contiene (para que la
  * imagen canónica del escenario los incluya y se mantengan consistentes).
  */
-export async function extractLocations(input: {
-  scriptMarkdown: string;
-  styleBible: string;
-  language: string;
-}): Promise<ExtractedLocation[]> {
+export async function extractLocations(
+  input: {
+    scriptMarkdown: string;
+    styleBible: string;
+    language: string;
+  },
+  choice?: TextModelChoice,
+): Promise<ExtractedLocation[]> {
   const lang = promptLangName(input.language);
   const system = [
     "Eres un director de arte de cine.",
@@ -44,7 +47,10 @@ export async function extractLocations(input: {
   ].join("\n");
 
   return withRetry(async () => {
-    const { text } = await generateStructured({ system, user, jsonMode: true, maxTokens: 4000 });
+    const { text } = await generateStructured(
+      { system, user, jsonMode: true, maxTokens: 4000 },
+      choice,
+    );
     const raw = extractJson<{ locations?: unknown[] }>(text);
     const list = Array.isArray(raw?.locations) ? raw.locations : [];
     const parsed = list
@@ -61,11 +67,14 @@ export async function extractLocations(input: {
  * array alineado por índice de escena con el locationId elegido o null (sin match).
  * Nunca inventa ni crea locaciones.
  */
-export async function assignScenesToLocations(input: {
-  scenes: { heading: string; summary: string }[];
-  locations: { id: string; name: string; description: string }[];
-  language: string;
-}): Promise<(string | null)[]> {
+export async function assignScenesToLocations(
+  input: {
+    scenes: { heading: string; summary: string }[];
+    locations: { id: string; name: string; description: string }[];
+    language: string;
+  },
+  choice?: TextModelChoice,
+): Promise<(string | null)[]> {
   if (input.scenes.length === 0) return [];
   if (input.locations.length === 0) return input.scenes.map(() => null);
 
@@ -93,7 +102,10 @@ export async function assignScenesToLocations(input: {
     'Devuelve JSON: { "assignments": [ { "index": number, "locationId": string|null } ] } con UNA entrada por escena.',
   ].join("\n");
 
-  const { text } = await generateStructured({ system, user, jsonMode: true, maxTokens: 2000 });
+  const { text } = await generateStructured(
+    { system, user, jsonMode: true, maxTokens: 2000 },
+    choice,
+  );
   const raw = extractJson<{
     assignments?: { index?: number; locationId?: string | null }[];
   }>(text);

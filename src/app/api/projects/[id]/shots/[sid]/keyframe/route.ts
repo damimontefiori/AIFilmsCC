@@ -89,6 +89,14 @@ export async function POST(req: Request, { params }: Ctx) {
     const hasChars = descriptions.length > 0;
     const doComposite = mode !== "direct" && hasChars;
 
+    // Locación EFECTIVA y si el plano usa un ENCUADRE específico (vs el canónico
+    // del escenario). Con encuadre NO se pasa la cámara (la toma ya está fijada);
+    // sobre el canónico SÍ, para reencuadrar en un solo paso.
+    const effLocationId = shot.locationId ?? scene?.locationId ?? null;
+    const usingEncuadre = !!(
+      shot.encuadre?.imagePath && shot.encuadre.locationId === effLocationId
+    );
+
     // Prompt (mismo texto para preview y para generar). keyframeMoment fija el
     // instante; vacío → acción completa.
     const builtPrompt = doComposite
@@ -96,7 +104,7 @@ export async function POST(req: Request, { params }: Ctx) {
           characterDescriptions: descriptions,
           actionDescription: shot.actionDescription,
           keyframeMoment: shot.keyframeMoment,
-          cameraNotes: shot.cameraNotes,
+          cameraFraming: usingEncuadre ? undefined : shot.cameraNotes || undefined,
           genre: project.genre,
           tone: project.tone,
           aspectRatio: project.aspectRatio,
@@ -121,13 +129,10 @@ export async function POST(req: Request, { params }: Ctx) {
 
     const effectivePrompt = promptOverride || builtPrompt;
 
-    // Resuelve la imagen base del AMBIENTE. Locación EFECTIVA del plano:
-    // override del plano → locación de la escena. Se usa el encuadre elegido solo
-    // si pertenece a esa locación (si quedó "stale", cae al canónico efectivo).
-    const effLocationId = shot.locationId ?? scene?.locationId ?? null;
+    // Resuelve la imagen base del AMBIENTE (encuadre elegido o canónico efectivo).
     let baseImagePath: string | null = null;
-    if (shot.encuadre?.imagePath && shot.encuadre.locationId === effLocationId) {
-      baseImagePath = shot.encuadre.imagePath;
+    if (usingEncuadre) {
+      baseImagePath = shot.encuadre!.imagePath;
     } else if (effLocationId) {
       const loc = await prisma.location.findUnique({ where: { id: effLocationId } });
       baseImagePath = loc?.imagePath ?? null;

@@ -6,11 +6,13 @@ import {
   fluxImageConfigs,
 } from "@/lib/config";
 import { checkBinaries } from "@/lib/media/ffmpeg";
+import { loadSettings } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  await loadSettings(true);
   const narrative = narrativeTextConfig();
   const structured = structuredTextConfigs();
   const gemini = geminiImageConfigs();

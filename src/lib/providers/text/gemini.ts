@@ -20,8 +20,9 @@ export async function geminiGenerateText(params: {
 
   const generationConfig: Record<string, unknown> = {
     // Presupuesto amplio: gemini-3.x flash es un modelo "thinking" y los
-    // tokens de razonamiento cuentan contra el presupuesto de salida.
-    maxOutputTokens: params.maxTokens ?? 32768,
+    // tokens de razonamiento cuentan contra el presupuesto de salida. Piso alto
+    // para que tareas chicas (p.ej. sugerir momento, 200) no salgan vacías.
+    maxOutputTokens: Math.max(params.maxTokens ?? 32768, 8192),
   };
   if (params.jsonMode) generationConfig.responseMimeType = "application/json";
 

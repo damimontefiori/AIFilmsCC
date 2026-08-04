@@ -79,11 +79,18 @@ export async function responsesComplete(
   cfg: AzureTextConfig,
   opts: ChatOptions,
 ): Promise<string> {
-  const url = `${baseUrl(cfg)}/openai/responses?api-version=${cfg.apiVersion}`;
+  // Endpoint v1 (termina en /responses, p.ej. gpt-5.4-mini) se usa TAL CUAL;
+  // el clásico (cognitiveservices) construye /openai/responses?api-version=.
+  const base = baseUrl(cfg);
+  const url = /\/responses$/.test(base)
+    ? base
+    : `${base}/openai/responses?api-version=${cfg.apiVersion}`;
   const body: Record<string, unknown> = {
     model: cfg.deployment,
     input: opts.messages.map((m) => ({ role: m.role, content: m.content })),
-    max_output_tokens: opts.maxTokens ?? 16000,
+    // Piso: los modelos de razonamiento gastan tokens "thinking"; presupuestos
+    // chicos (p.ej. 200) devuelven vacío. Aseguramos margen suficiente.
+    max_output_tokens: Math.max(opts.maxTokens ?? 16000, 4000),
   };
   if (cfg.reasoningEffort) body.reasoning = { effort: cfg.reasoningEffort };
   if (opts.jsonMode) body.text = { format: { type: "json_object" } };

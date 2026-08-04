@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { parseJson, toJson } from "@/lib/serialize";
 import { matchCharacter } from "@/lib/match-characters";
 import { assignScenesToLocations } from "@/lib/pipeline/locations";
+import type { TextModelChoice } from "@/lib/providers/text";
 import type { SceneDTO, ShotDTO } from "@/lib/dto";
 import {
   buildGeminiVideoPrompt,
@@ -129,6 +130,7 @@ export async function replaceBreakdown(
   breakdown: BreakdownScene[],
   styleBible: string,
   language: string,
+  choice?: TextModelChoice,
 ): Promise<void> {
   const chars = await prisma.character.findMany({ where: { projectId } });
   const locations = await prisma.location.findMany({ where: { projectId } });
@@ -137,11 +139,14 @@ export async function replaceBreakdown(
   let assignments: (string | null)[] = breakdown.map(() => null);
   if (locations.length > 0) {
     try {
-      assignments = await assignScenesToLocations({
-        scenes: breakdown.map((s) => ({ heading: s.heading, summary: s.summary })),
-        locations: locations.map((l) => ({ id: l.id, name: l.name, description: l.description })),
-        language,
-      });
+      assignments = await assignScenesToLocations(
+        {
+          scenes: breakdown.map((s) => ({ heading: s.heading, summary: s.summary })),
+          locations: locations.map((l) => ({ id: l.id, name: l.name, description: l.description })),
+          language,
+        },
+        choice,
+      );
     } catch {
       assignments = breakdown.map(() => null);
     }

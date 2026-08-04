@@ -1,5 +1,6 @@
 import { geminiImageConfigs, fluxImageConfigs } from "@/lib/config";
 import { withRetry } from "@/lib/utils";
+import { loadSettings } from "@/lib/settings";
 import { geminiGenerate } from "./gemini";
 import { fluxGenerate } from "./flux";
 import type { ImageRequest, ImageResult } from "./types";
@@ -12,6 +13,7 @@ export { ImageGenError } from "./types";
  * free -> paid) y FLUX.2-pro como fallback. Devuelve base64 + mimeType.
  */
 export async function generateImage(req: ImageRequest): Promise<ImageResult> {
+  await loadSettings();
   const errors: string[] = [];
 
   for (const cfg of geminiImageConfigs()) {

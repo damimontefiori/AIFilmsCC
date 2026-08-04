@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateStructured, extractJson } from "@/lib/providers/text";
+import { generateStructured, extractJson, type TextModelChoice } from "@/lib/providers/text";
 import { promptLangName } from "@/lib/languages";
 import { withRetry } from "@/lib/utils";
 import { SAFE_NEGATIVES, REALISM_DIRECTIVE } from "./safety";
@@ -16,11 +16,14 @@ export type ExtractedCharacter = z.infer<typeof ExtractedCharacterSchema>;
  * Extrae los personajes del guion con descripciones canónicas MUY visuales
  * (el ancla de consistencia). Usa gpt-4.1 (rápido).
  */
-export async function extractCharacters(input: {
-  scriptMarkdown: string;
-  styleBible: string;
-  language: string;
-}): Promise<ExtractedCharacter[]> {
+export async function extractCharacters(
+  input: {
+    scriptMarkdown: string;
+    styleBible: string;
+    language: string;
+  },
+  choice?: TextModelChoice,
+): Promise<ExtractedCharacter[]> {
   const lang = promptLangName(input.language);
   const system = [
     "Eres un director de casting y diseñador de personajes de cine.",
@@ -48,12 +51,10 @@ export async function extractCharacters(input: {
   ].join("\n");
 
   return withRetry(async () => {
-    const { text } = await generateStructured({
-      system,
-      user,
-      jsonMode: true,
-      maxTokens: 4000,
-    });
+    const { text } = await generateStructured(
+      { system, user, jsonMode: true, maxTokens: 4000 },
+      choice,
+    );
     const raw = extractJson<{ characters?: unknown[] }>(text);
     const list = Array.isArray(raw?.characters) ? raw.characters : [];
     const parsed = list

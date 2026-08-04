@@ -5,6 +5,7 @@ import { replaceBreakdown, getScenesWithShots } from "@/lib/shots";
 import { breakdownShots } from "@/lib/pipeline/shots";
 import { ScriptDocSchema } from "@/lib/pipeline/types";
 import { parseJson } from "@/lib/serialize";
+import { projectTextChoice } from "@/lib/model-choice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(_req: Request, { params }: Ctx) {
+export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const project = await getProject(id);
   if (!project) {
@@ -24,14 +25,19 @@ export async function POST(_req: Request, { params }: Ctx) {
       { status: 400 },
     );
   }
+  const body = await req.json().catch(() => ({}));
+  const choice = projectTextChoice(project, body.model, body.apiKey);
   try {
     const script = ScriptDocSchema.parse(parseJson(project.scriptJson, {}));
-    const breakdown = await breakdownShots({
-      script,
-      language: project.language,
-      targetDurationSec: project.targetDurationSec,
-    });
-    await replaceBreakdown(id, breakdown, project.styleBible, project.language);
+    const breakdown = await breakdownShots(
+      {
+        script,
+        language: project.language,
+        targetDurationSec: project.targetDurationSec,
+      },
+      choice,
+    );
+    await replaceBreakdown(id, breakdown, project.styleBible, project.language, choice);
     if (["script", "characters"].includes(project.status)) {
       await prisma.project.update({ where: { id }, data: { status: "shots" } });
     }

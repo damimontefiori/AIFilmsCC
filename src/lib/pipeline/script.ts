@@ -1,9 +1,7 @@
 import { generateNarrative, extractJson } from "@/lib/providers/text";
-import { geminiGenerateText } from "@/lib/providers/text/gemini";
-import { defaultAiStudioKey } from "@/lib/config";
 import { promptLangName } from "@/lib/languages";
 import { withRetry } from "@/lib/utils";
-import { scriptModelById, DEFAULT_SCRIPT_MODEL } from "./script-models";
+import { DEFAULT_SCRIPT_MODEL } from "./script-models";
 import { GEMINI_VIDEO_SAFETY } from "./safety";
 import {
   ScriptDocSchema,
@@ -179,7 +177,7 @@ export async function generateScript(
   // 1) Borrador. Reintenta ante fallos transitorios o JSON malformado.
   const draft = await withRetry(
     async () => {
-      const text = await callScriptModel(system, user, choice, 20000, 32768);
+      const text = await callScriptModel(system, user, choice);
       return coerceScriptDoc(extractJson<unknown>(text), input);
     },
     { attempts: 2 },
@@ -191,31 +189,17 @@ export async function generateScript(
   return reviewScript(draft, input, choice);
 }
 
-/** Llama al modelo de guion elegido (Azure razonamiento o Gemini AI Studio). */
+/** Llama al modelo de guion elegido (gpt-5.4-pro Azure o gemini AI Studio). */
 export async function callScriptModel(
   system: string,
   user: string,
   choice: ScriptModelChoice,
-  maxTokensAzure = 20000,
-  maxTokensGemini = 32768,
+  maxTokens = 32768,
 ): Promise<string> {
-  const modelId = choice.model || DEFAULT_SCRIPT_MODEL;
-  const modelOpt = scriptModelById(modelId);
-  if (modelOpt?.provider === "aistudio") {
-    const apiKey = choice.apiKey?.trim() || defaultAiStudioKey();
-    if (!apiKey) {
-      throw new Error("Falta la API Key de AI Studio para el modelo seleccionado.");
-    }
-    return geminiGenerateText({
-      apiKey,
-      model: modelId,
-      system,
-      user,
-      jsonMode: true,
-      maxTokens: maxTokensGemini,
-    });
-  }
-  const r = await generateNarrative({ system, user, jsonMode: true, maxTokens: maxTokensAzure });
+  const r = await generateNarrative(
+    { system, user, jsonMode: true, maxTokens },
+    { model: choice.model || DEFAULT_SCRIPT_MODEL, apiKey: choice.apiKey },
+  );
   return r.text;
 }
 
@@ -271,7 +255,7 @@ export async function reviewScript(
 
   try {
     const text = await withRetry(
-      () => callScriptModel(system, user, choice, 20000, 32768),
+      () => callScriptModel(system, user, choice),
       { attempts: 2 },
     );
     const doc = coerceScriptDoc(extractJson<unknown>(text), input);

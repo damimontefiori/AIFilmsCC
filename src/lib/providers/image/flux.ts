@@ -60,6 +60,8 @@ export async function fluxGenerate(
 ): Promise<ImageResult> {
   const { width, height } = dimsFor(req.aspectRatio);
   const body: Record<string, unknown> = {
+    // El endpoint exige el nombre del modelo en el body (error no_model_name si falta).
+    model: cfg.model,
     prompt: req.prompt,
     width,
     height,

@@ -1,9 +1,15 @@
-// Lectura centralizada de variables de entorno + validación de presencia.
+// Lectura centralizada de configuración de proveedores + validación de presencia.
 // Nada de esto se expone al cliente; solo se usa en route handlers / server.
+// Precedencia: override en DB (gestionado en /settings) > variable de entorno.
+// La caché de overrides se llena con loadSettings() (async) antes de construir
+// las cadenas; si no está cargada, se cae limpiamente al valor de entorno.
+
+import { getOverride } from "@/lib/settings";
 
 function env(name: string): string | undefined {
-  const v = process.env[name];
-  return v && v.trim() !== "" ? v.trim() : undefined;
+  const override = getOverride(name);
+  const raw = override ?? process.env[name];
+  return raw && raw.trim() !== "" ? raw.trim() : undefined;
 }
 
 export type AzureApi = "chat" | "responses";
@@ -17,7 +23,7 @@ export type AzureTextConfig = {
   // "responses": modelos de razonamiento (gpt-5.x) vía Responses API.
   // "chat": chat/completions clásico (gpt-4.1, gpt-4o).
   api: AzureApi;
-  reasoningEffort?: "medium" | "high" | "xhigh"; // solo Responses API
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh"; // solo Responses API
 };
 
 /** Slot narrativo/razonamiento (gpt-5.4-pro). */
@@ -37,9 +43,30 @@ export function narrativeTextConfig(): AzureTextConfig | null {
   };
 }
 
-/** Slot estructurado/JSON (gpt-4.1) — Accenture primario, Students fallback. */
+/** Slot estructurado por razonamiento (gpt-5.4-mini, Responses API v1). */
+export function structuredReasoningConfig(): AzureTextConfig | null {
+  const endpoint = env("FOUNDRY_MINI_ENDPOINT");
+  const key = env("FOUNDRY_MINI_KEY");
+  if (!endpoint || !key) return null;
+  return {
+    label: "foundry-mini",
+    endpoint, // v1 completo (termina en /responses); azure-openai lo usa tal cual
+    key,
+    deployment: env("FOUNDRY_MINI_DEPLOYMENT") || "gpt-5.4-mini",
+    apiVersion: "", // no aplica al endpoint v1
+    api: "responses",
+    reasoningEffort: "low", // razonamiento ligero: rápido y de calidad para JSON
+  };
+}
+
+/**
+ * Slot estructurado/JSON. Prioriza gpt-5.4-mini (razonamiento) y cae a gpt-4.1
+ * (Accenture → Students) como respaldo.
+ */
 export function structuredTextConfigs(): AzureTextConfig[] {
   const configs: AzureTextConfig[] = [];
+  const mini = structuredReasoningConfig();
+  if (mini) configs.push(mini);
   const accEndpoint = env("ACCENTURE_TEXT_ENDPOINT");
   const accKey = env("ACCENTURE_TEXT_KEY");
   if (accEndpoint && accKey) {
@@ -102,16 +129,6 @@ export function fluxImageConfigs(): FluxImageConfig[] {
       endpoint: accEndpoint,
       key: accKey,
       model: env("ACCENTURE_IMAGE_MODEL") || "FLUX.2-pro",
-    });
-  }
-  const stuEndpoint = env("STUDENTS_IMAGE_ENDPOINT");
-  const stuKey = env("STUDENTS_IMAGE_KEY");
-  if (stuEndpoint && stuKey) {
-    configs.push({
-      label: "students-flux",
-      endpoint: stuEndpoint,
-      key: stuKey,
-      model: env("STUDENTS_IMAGE_MODEL") || "FLUX.2-pro",
     });
   }
   return configs;

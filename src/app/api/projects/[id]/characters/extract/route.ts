@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getProject } from "@/lib/projects";
 import { listCharacters } from "@/lib/characters";
 import { extractCharacters } from "@/lib/pipeline/characters";
+import { projectTextChoice } from "@/lib/model-choice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ export const maxDuration = 300;
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(_req: Request, { params }: Ctx) {
+export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const project = await getProject(id);
   if (!project) {
@@ -22,12 +23,17 @@ export async function POST(_req: Request, { params }: Ctx) {
       { status: 400 },
     );
   }
+  const body = await req.json().catch(() => ({}));
+  const choice = projectTextChoice(project, body.model, body.apiKey);
   try {
-    const extracted = await extractCharacters({
-      scriptMarkdown: project.scriptMarkdown,
-      styleBible: project.styleBible,
-      language: project.language,
-    });
+    const extracted = await extractCharacters(
+      {
+        scriptMarkdown: project.scriptMarkdown,
+        styleBible: project.styleBible,
+        language: project.language,
+      },
+      choice,
+    );
 
     // No destructivo: solo añade personajes cuyo nombre aún no existe.
     const existing = await prisma.character.findMany({ where: { projectId: id } });
