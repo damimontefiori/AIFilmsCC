@@ -69,6 +69,24 @@ export type SceneDTO = {
   shots: ShotDTO[];
 };
 
+export type TimelineClipDTO = {
+  id: string;
+  order: number;
+  sourcePath: string;
+  sourceShotId: string | null;
+  label: string;
+  inSec: number | null;
+  outSec: number | null;
+  volume: number; // 0..2 (0..200%)
+  keyframePath: string | null; // keyframe del plano de origen, para el thumbnail
+};
+
+export type AudioSettingsDTO = {
+  audioPath: string | null;
+  audioMode: string; // mix | replace
+  audioVolume: number;
+};
+
 export type AccountDTO = {
   id: string;
   label: string;

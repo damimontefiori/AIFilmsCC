@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { getShotsFlat } from "@/lib/shots";
+import { getTimeline } from "@/lib/timeline";
 import { prisma } from "@/lib/db";
 import { AssemblyView } from "@/components/pipeline/assembly-view";
 
@@ -15,6 +16,7 @@ export default async function AssemblyPage({
   const project = await getProject(id);
   if (!project) notFound();
   const shots = await getShotsFlat(id);
+  const timeline = await getTimeline(id);
   const lastExport = await prisma.export.findFirst({
     where: { projectId: id, status: "done" },
     orderBy: { createdAt: "desc" },
@@ -23,6 +25,12 @@ export default async function AssemblyPage({
     <AssemblyView
       projectId={id}
       initialShots={shots}
+      initialTimeline={timeline}
+      initialAudio={{
+        audioPath: project.audioPath,
+        audioMode: project.audioMode,
+        audioVolume: project.audioVolume,
+      }}
       initialExport={lastExport?.outputPath ?? null}
     />
   );

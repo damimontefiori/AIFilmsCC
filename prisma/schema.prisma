@@ -27,13 +27,38 @@ model Project {
   scriptModel       String   @default("gpt-5.4-pro") // modelo elegido para el guion
   scriptJson        String? // guion estructurado (JSON serializado)
   scriptMarkdown    String? // render de solo lectura
+  // Montaje: pista de audio opcional del film final
+  audioPath         String? // clave relativa del audio subido (música/voz)
+  audioMode         String   @default("mix") // mix (mezcla sobre el audio de los clips) | replace
+  audioVolume       Float    @default(0.8) // volumen de la pista (0..1), aplicado en modo mix
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  characters Character[]
-  locations  Location[]
-  scenes     Scene[]
-  exports    Export[]
+  characters    Character[]
+  locations     Location[]
+  scenes        Scene[]
+  exports       Export[]
+  timelineClips TimelineClip[]
+}
+
+// Segmento de la línea de tiempo de montaje (EDL no destructiva). Cada segmento
+// referencia un clip de origen (Shot.videoPath) con puntos de recorte opcionales.
+// Dividir un clip crea dos segmentos con el mismo sourcePath y distinto in/out;
+// borrar/reordenar solo toca esta tabla, nunca los archivos de vídeo.
+model TimelineClip {
+  id           String   @id @default(cuid())
+  projectId    String
+  order        Int      @default(0)
+  sourcePath   String // clave relativa del clip de origen
+  sourceShotId String? // plano de origen (para etiqueta/keyframe); informativo
+  label        String   @default("")
+  inSec        Float? // recorte de entrada (null = desde 0)
+  outSec       Float? // recorte de salida (null = hasta el final)
+  volume       Float    @default(1) // volumen del clip (0..2 = 0..200%)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model Location {

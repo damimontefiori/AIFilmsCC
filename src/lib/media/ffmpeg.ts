@@ -91,7 +91,14 @@ export type AssembleOptions = {
   width?: number;
   height?: number;
   fps?: number;
+  audio?: AudioTrack;
 };
+
+/** Un segmento de la línea de tiempo: clip de origen (ruta ABSOLUTA) + recortes + volumen (0..2). */
+export type Segment = { path: string; inSec?: number | null; outSec?: number | null; volume?: number | null };
+
+/** Pista de audio del film final (ruta ABSOLUTA). */
+export type AudioTrack = { path: string; mode: "mix" | "replace"; volume: number };
 
 function dimsForAspect(aspect: string): { width: number; height: number } {
   switch (aspect) {
@@ -105,20 +112,27 @@ function dimsForAspect(aspect: string): { width: number; height: number } {
   }
 }
 
-/** Normaliza un clip a WxH/fps y garantiza pista de audio estéreo 48k. */
+/**
+ * Normaliza un segmento a WxH/fps, aplica el recorte in/out (si hay) y garantiza
+ * pista de audio estéreo 48k. El recorte usa seeking de entrada (`-ss`) + `-t`.
+ */
 async function normalizeClip(
-  input: string,
+  seg: Segment,
   output: string,
   target: { width: number; height: number; fps: number },
 ): Promise<void> {
-  const info = await probe(input);
+  const info = await probe(seg.path);
+  const inSec = seg.inSec ?? null;
+  const outSec = seg.outSec ?? null;
+  const dur = outSec != null ? outSec - (inSec ?? 0) : null;
   const vf =
     `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,` +
     `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,` +
     `setsar=1,fps=${target.fps}`;
 
   const args: string[] = ["-y"];
-  args.push("-i", input);
+  if (inSec != null && inSec > 0) args.push("-ss", String(inSec)); // seek de entrada
+  args.push("-i", seg.path);
   if (!info.hasAudio) {
     args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
   }
@@ -127,7 +141,13 @@ async function normalizeClip(
   args.push("-vf", vf);
   args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p");
   args.push("-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k");
-  if (!info.hasAudio) args.push("-shortest");
+  // Volumen del clip (0..2 = 0..200%). Solo si difiere del 100%.
+  const vol = seg.volume;
+  if (vol != null && Number.isFinite(vol) && Math.abs(vol - 1) > 0.001) {
+    args.push("-af", `volume=${Math.min(2, Math.max(0, vol)).toFixed(3)}`);
+  }
+  if (dur != null && dur > 0) args.push("-t", String(dur));
+  else if (!info.hasAudio) args.push("-shortest");
   args.push(output);
 
   const { code, stderr } = await run(ffmpegBin(), args);
@@ -137,16 +157,46 @@ async function normalizeClip(
 }
 
 /**
- * Ensambla clips en un único .mp4. Normaliza cada clip a un formato canónico
- * y luego concatena con el demuxer concat (copia, sin recodificar de nuevo).
+ * Añade la pista de audio al vídeo concatenado. `mix` mezcla la pista sobre el
+ * audio de los clips (con volumen); `replace` sustituye todo el audio. En ambos
+ * casos el resultado dura lo que el vídeo (se rellena/silencia o se corta).
+ */
+async function applyAudio(videoIn: string, audio: AudioTrack, output: string): Promise<void> {
+  const vol = Number.isFinite(audio.volume) ? Math.max(0, audio.volume) : 0.8;
+  const filter =
+    audio.mode === "replace"
+      ? `[1:a]volume=${vol},apad[a]`
+      : `[1:a]volume=${vol}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[a]`;
+  const { code, stderr } = await run(ffmpegBin(), [
+    "-y",
+    "-i", videoIn,
+    "-i", audio.path,
+    "-filter_complex", filter,
+    "-map", "0:v:0",
+    "-map", "[a]",
+    "-c:v", "copy",
+    "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
+    "-shortest",
+    "-movflags", "+faststart",
+    output,
+  ]);
+  if (code !== 0) {
+    throw new Error(`ffmpeg audio falló (${code}): ${stderr.slice(-400)}`);
+  }
+}
+
+/**
+ * Ensambla segmentos en un único .mp4. Normaliza cada segmento (con su recorte)
+ * a un formato canónico, concatena con el demuxer concat (copia) y, si hay pista
+ * de audio, aplica una pasada final de mezcla/reemplazo.
  */
 export async function assembleFilm(
-  clipPaths: string[],
+  segments: Segment[],
   outputPath: string,
   aspectRatio: string,
   opts: AssembleOptions = {},
 ): Promise<void> {
-  if (clipPaths.length === 0) throw new Error("No hay clips para ensamblar");
+  if (segments.length === 0) throw new Error("No hay clips para ensamblar");
 
   const dims = dimsForAspect(aspectRatio);
   const target = {
@@ -158,9 +208,9 @@ export async function assembleFilm(
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "aifilms-"));
   try {
     const normalized: string[] = [];
-    for (let i = 0; i < clipPaths.length; i++) {
+    for (let i = 0; i < segments.length; i++) {
       const out = path.join(tmp, `n${String(i).padStart(3, "0")}.mp4`);
-      await normalizeClip(clipPaths[i], out, target);
+      await normalizeClip(segments[i], out, target);
       normalized.push(out);
     }
 
@@ -172,22 +222,23 @@ export async function assembleFilm(
     await fs.writeFile(listPath, listBody, "utf8");
 
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    // Si hay audio, concatena a un temporal y luego aplica la pista; si no, directo.
+    const concatOut = opts.audio ? path.join(tmp, "concat.mp4") : outputPath;
     const { code, stderr } = await run(ffmpegBin(), [
       "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      "-c",
-      "copy",
-      "-movflags",
-      "+faststart",
-      outputPath,
+      "-f", "concat",
+      "-safe", "0",
+      "-i", listPath,
+      "-c", "copy",
+      "-movflags", "+faststart",
+      concatOut,
     ]);
     if (code !== 0) {
       throw new Error(`ffmpeg concat falló (${code}): ${stderr.slice(-400)}`);
+    }
+
+    if (opts.audio) {
+      await applyAudio(concatOut, opts.audio, outputPath);
     }
   } finally {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});

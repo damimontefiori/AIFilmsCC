@@ -11,6 +11,12 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp",
   ".mp4": "video/mp4",
   ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".ogg": "audio/ogg",
 };
 
 type Ctx = { params: Promise<{ path: string[] }> };
