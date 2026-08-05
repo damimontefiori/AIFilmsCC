@@ -1,6 +1,7 @@
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { SaveState } from "@/lib/use-autosave";
 
 export function Badge({
   className,
@@ -30,4 +31,29 @@ export function Badge({
 
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={cn("h-4 w-4 animate-spin", className)} />;
+}
+
+/** Indicador de autoguardado uniforme en todas las etapas. */
+export function SaveIndicator({
+  state,
+  className,
+}: {
+  state: SaveState;
+  className?: string;
+}) {
+  return (
+    <span className={cn("flex items-center gap-1 text-[11px] text-muted", className)}>
+      {state === "saving" ? (
+        <>
+          <Loader2 className="h-3 w-3 animate-spin" /> Guardando…
+        </>
+      ) : state === "saved" ? (
+        <>
+          <Check className="h-3 w-3 text-success" /> Guardado
+        </>
+      ) : (
+        <>Autoguardado activo</>
+      )}
+    </span>
+  );
 }

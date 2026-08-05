@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Save, Wand2, ArrowRight, AlertCircle } from "lucide-react";
+import { Sparkles, Wand2, ArrowRight, AlertCircle } from "lucide-react";
 import type { ProjectDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
+import { useAutosave } from "@/lib/use-autosave";
 import { LANGUAGES } from "@/lib/languages";
 import {
   DEFAULT_SCRIPT_MODEL,
@@ -13,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label, Textarea, Select } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/misc";
+import { Spinner, SaveIndicator } from "@/components/ui/misc";
 import { ScriptModelPicker } from "./script-model-picker";
 
 export function IdeaEditor({
@@ -25,43 +26,47 @@ export function IdeaEditor({
 }) {
   const router = useRouter();
   const [form, setForm] = useState(project);
-  const [saving, setSaving] = useState(false);
   const [refining, setRefining] = useState(false);
   const [auto, setAuto] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState(project.scriptModel || DEFAULT_SCRIPT_MODEL);
   const [apiKey, setApiKey] = useState(defaultAiStudioKey);
+  const { state: saveState, schedule } = useAutosave();
 
-  function set<K extends keyof ProjectDTO>(key: K, value: ProjectDTO[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  async function save() {
-    setSaving(true);
-    setError(null);
+  async function persistFields(next: ProjectDTO, modelVal: string) {
     try {
       await jsonFetch(`/api/projects/${project.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          title: form.title,
-          idea: form.idea,
-          genre: form.genre,
-          tone: form.tone,
-          language: form.language,
-          aspectRatio: form.aspectRatio,
-          targetDurationSec: Number(form.targetDurationSec),
-          logline: form.logline,
-          synopsis: form.synopsis,
-          styleBible: form.styleBible,
-          scriptModel: model,
+          title: next.title,
+          idea: next.idea,
+          genre: next.genre,
+          tone: next.tone,
+          language: next.language,
+          aspectRatio: next.aspectRatio,
+          targetDurationSec: Number(next.targetDurationSec),
+          logline: next.logline,
+          synopsis: next.synopsis,
+          styleBible: next.styleBible,
+          scriptModel: modelVal,
         }),
       });
-      router.refresh();
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
+      throw e;
     }
+  }
+
+  // Autoguardado (debounce) al editar cualquier campo o el modelo.
+  function set<K extends keyof ProjectDTO>(key: K, value: ProjectDTO[K]) {
+    const next = { ...form, [key]: value };
+    setForm(next);
+    schedule(() => persistFields(next, model));
+  }
+  function changeModel(m: string) {
+    setModel(m);
+    schedule(() => persistFields(form, m));
   }
 
   async function refine() {
@@ -126,7 +131,7 @@ export function IdeaEditor({
     }
   }
 
-  const busy = saving || refining || auto;
+  const busy = refining || auto;
   const hasConcept = Boolean(form.logline || form.synopsis || form.styleBible);
 
   return (
@@ -195,16 +200,14 @@ export function IdeaEditor({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button variant="secondary" onClick={save} disabled={busy}>
-              {saving ? <Spinner /> : <Save className="h-4 w-4" />} Guardar
-            </Button>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <Button variant="outline" onClick={refine} disabled={busy}>
               {refining ? <Spinner /> : <Sparkles className="h-4 w-4" />} Refinar concepto
             </Button>
             <Button onClick={autopilot} disabled={busy}>
               {auto ? <Spinner /> : <Wand2 className="h-4 w-4" />} Auto-borrador
             </Button>
+            <SaveIndicator state={saveState} className="ml-1" />
           </div>
           {auto && (
             <p className="text-xs text-muted">
@@ -256,10 +259,8 @@ export function IdeaEditor({
                   onChange={(e) => set("styleBible", e.target.value)}
                 />
               </div>
-              <div className="flex justify-between">
-                <Button variant="secondary" onClick={save} disabled={busy}>
-                  {saving ? <Spinner /> : <Save className="h-4 w-4" />} Guardar
-                </Button>
+              <div className="flex items-center justify-between">
+                <SaveIndicator state={saveState} />
                 <Button variant="outline" onClick={() => router.push(`/projects/${project.id}/script`)}>
                   Ir a Guion <ArrowRight className="h-4 w-4" />
                 </Button>
@@ -271,7 +272,7 @@ export function IdeaEditor({
       </div>
       <ScriptModelPicker
         model={model}
-        setModel={setModel}
+        setModel={changeModel}
         apiKey={apiKey}
         setApiKey={setApiKey}
         hint="Modelo para generar el guion. Lo usan «Auto-borrador» y el paso «Guion»."

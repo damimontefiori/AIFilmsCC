@@ -9,16 +9,17 @@ import {
   Trash2,
   Lock,
   Unlock,
-  Save,
   ImagePlus,
   AlertCircle,
 } from "lucide-react";
 import type { LocationDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
+import { useAutosave } from "@/lib/use-autosave";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea, Label } from "@/components/ui/field";
-import { Badge, Spinner } from "@/components/ui/misc";
+import { Badge, Spinner, SaveIndicator } from "@/components/ui/misc";
+import { ImageZoom } from "@/components/ui/modal";
 import { FRAMING_TEMPLATES, FRAMING_PLACEHOLDER, FRAMING_HELP } from "@/lib/framings";
 
 function mediaUrl(path: string) {
@@ -143,12 +144,34 @@ function LocationCard({
   onPatchLocal: (lid: string, patch: Partial<LocationDTO>) => void;
   onRefetch: () => void;
 }) {
-  const [saving, setSaving] = useState(false);
   const [genning, setGenning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [encBusy, setEncBusy] = useState<null | "new" | string>(null);
   const [newEncLabel, setNewEncLabel] = useState("");
   const [newEncFraming, setNewEncFraming] = useState("");
+  const { state: saveState, schedule } = useAutosave();
+
+  // Autoguardado (debounce) del nombre y la biblia de objetos.
+  async function persist(next: { name: string; description: string }) {
+    try {
+      await jsonFetch(`/api/projects/${projectId}/locations/${location.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: next.name, description: next.description }),
+      });
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+  }
+  function update(patch: Partial<Pick<LocationDTO, "name" | "description">>) {
+    const next = {
+      name: patch.name ?? location.name,
+      description: patch.description ?? location.description,
+    };
+    onPatchLocal(location.id, patch);
+    schedule(() => persist(next));
+  }
 
   async function createEncuadre() {
     if (!newEncFraming.trim()) return;
@@ -184,21 +207,6 @@ function LocationCard({
     }
   }
 
-  async function saveFields() {
-    setSaving(true);
-    setError(null);
-    try {
-      await jsonFetch(`/api/projects/${projectId}/locations/${location.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: location.name, description: location.description }),
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function toggleLock() {
     const next = !location.locked;
     onPatchLocal(location.id, { locked: next });
@@ -230,7 +238,7 @@ function LocationCard({
     onRefetch();
   }
 
-  const busy = saving || genning || encBusy !== null;
+  const busy = genning || encBusy !== null;
 
   return (
     <Card>
@@ -240,7 +248,7 @@ function LocationCard({
             <Input
               className="font-semibold"
               value={location.name}
-              onChange={(e) => onPatchLocal(location.id, { name: e.target.value })}
+              onChange={(e) => update({ name: e.target.value })}
               placeholder="Nombre de la locación"
             />
             <Button
@@ -260,7 +268,7 @@ function LocationCard({
             <Textarea
               className="min-h-32 text-sm"
               value={location.description}
-              onChange={(e) => onPatchLocal(location.id, { description: e.target.value })}
+              onChange={(e) => update({ description: e.target.value })}
               placeholder="Materiales, colores, iluminación y objetos/props concretos que NO deben cambiar entre tomas…"
             />
             <p className="mt-1 text-[11px] text-muted">
@@ -268,9 +276,7 @@ function LocationCard({
               del lugar se mantengan consistentes.
             </p>
           </div>
-          <Button variant="secondary" size="sm" onClick={saveFields} disabled={busy}>
-            {saving ? <Spinner /> : <Save className="h-4 w-4" />} Guardar
-          </Button>
+          <SaveIndicator state={saveState} />
           {error && (
             <div className="flex items-start gap-2 rounded-md bg-danger/10 p-2 text-xs text-danger">
               <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -286,7 +292,12 @@ function LocationCard({
           </div>
           <div className="aspect-video w-full overflow-hidden rounded-md border border-border bg-surface-2">
             {location.imagePath ? (
-              <img src={mediaUrl(location.imagePath)} alt={location.name} className="h-full w-full object-cover" />
+              <ImageZoom
+                src={mediaUrl(location.imagePath)}
+                alt={location.name}
+                caption={location.name}
+                className="h-full w-full"
+              />
             ) : (
               <div className="flex h-full items-center justify-center p-2 text-center text-xs text-muted">
                 Sin imagen de ambiente
@@ -311,7 +322,12 @@ function LocationCard({
                 {location.encuadres.map((enc) => (
                   <div key={enc.id} className="group relative overflow-hidden rounded border border-border">
                     {enc.imagePath ? (
-                      <img src={mediaUrl(enc.imagePath)} alt={enc.label} className="aspect-video w-full object-cover" />
+                      <ImageZoom
+                        src={mediaUrl(enc.imagePath)}
+                        alt={enc.label}
+                        caption={`${location.name} · ${enc.label || "Encuadre"}`}
+                        className="aspect-video w-full"
+                      />
                     ) : (
                       <div className="flex aspect-video w-full items-center justify-center text-[9px] text-muted">—</div>
                     )}

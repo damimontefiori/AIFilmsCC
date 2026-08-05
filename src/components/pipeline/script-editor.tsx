@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Wand2,
-  Save,
   Trash2,
   Plus,
   MessageSquare,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import type { ProjectDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
+import { useAutosave } from "@/lib/use-autosave";
 import {
   scriptToMarkdown,
   type ScriptBeat,
@@ -27,7 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/field";
-import { Badge, Spinner } from "@/components/ui/misc";
+import { Badge, Spinner, SaveIndicator } from "@/components/ui/misc";
 import { ScriptModelPicker } from "./script-model-picker";
 
 function parseDoc(json: string | null): ScriptDoc | null {
@@ -49,15 +49,31 @@ export function ScriptEditor({
   const router = useRouter();
   const [doc, setDoc] = useState<ScriptDoc | null>(parseDoc(project.scriptJson));
   const [generating, setGenerating] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
   const [model, setModel] = useState(project.scriptModel || DEFAULT_SCRIPT_MODEL);
   const [apiKey, setApiKey] = useState(defaultAiStudioKey);
+  const { state: saveState, schedule } = useAutosave();
 
+  async function persist(next: ScriptDoc) {
+    try {
+      await jsonFetch(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          scriptJson: JSON.stringify(next),
+          scriptMarkdown: scriptToMarkdown(next),
+        }),
+      });
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+  }
+
+  // Cada edición del guion se autoguarda (debounce).
   function mutate(next: ScriptDoc) {
     setDoc(next);
-    setDirty(true);
+    schedule(() => persist(next));
   }
 
   function updateScene(i: number, patch: Partial<ScriptScene>) {
@@ -140,7 +156,6 @@ export function ScriptEditor({
         },
       );
       setDoc(res.doc);
-      setDirty(false);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -149,28 +164,7 @@ export function ScriptEditor({
     }
   }
 
-  async function save() {
-    if (!doc) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await jsonFetch(`/api/projects/${project.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          scriptJson: JSON.stringify(doc),
-          scriptMarkdown: scriptToMarkdown(doc),
-        }),
-      });
-      setDirty(false);
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const busy = generating || saving;
+  const busy = generating;
 
   if (!doc) {
     return (
@@ -204,16 +198,13 @@ export function ScriptEditor({
     <div className="space-y-4">
       <ScriptModelPicker model={model} setModel={setModel} apiKey={apiKey} setApiKey={setApiKey} />
       <div className="sticky top-14 z-30 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius)] border border-border bg-surface/90 p-2 backdrop-blur">
-        <div className="flex items-center gap-2 px-2 text-sm">
+        <div className="flex items-center gap-3 px-2 text-sm">
           <Badge>{doc.scenes.length} escenas</Badge>
-          {dirty && <Badge tone="warning">Cambios sin guardar</Badge>}
+          <SaveIndicator state={saveState} />
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={generate} disabled={busy}>
             {generating ? <Spinner /> : <RefreshCw className="h-4 w-4" />} Regenerar
-          </Button>
-          <Button size="sm" onClick={save} disabled={busy || !dirty}>
-            {saving ? <Spinner /> : <Save className="h-4 w-4" />} Guardar
           </Button>
         </div>
       </div>

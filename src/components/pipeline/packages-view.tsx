@@ -16,10 +16,12 @@ import {
 } from "lucide-react";
 import type { ShotDTO, AccountDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
+import { useAutosave } from "@/lib/use-autosave";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Textarea, Label, Select } from "@/components/ui/field";
-import { Badge, Spinner } from "@/components/ui/misc";
+import { Badge, Spinner, SaveIndicator } from "@/components/ui/misc";
+import { ImageZoom } from "@/components/ui/modal";
 
 function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
@@ -244,6 +246,7 @@ function PackageCard({
   const [busy, setBusy] = useState(false);
   const [accountId, setAccountId] = useState(shot.assignedAccountId || suggestedAccountId || "");
   const [error, setError] = useState<string | null>(null);
+  const { state: saveState, schedule } = useAutosave();
 
   const isGenerated = shot.status === "generated" || shot.status === "imported";
   const hasEnvLayer =
@@ -255,11 +258,15 @@ function PackageCard({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  async function savePrompt() {
+  async function savePrompt(value: string) {
     await jsonFetch(`/api/projects/${projectId}/shots/${shot.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ geminiPrompt: prompt }),
-    }).catch(() => {});
+      body: JSON.stringify({ geminiPrompt: value }),
+    });
+  }
+  function onPromptChange(value: string) {
+    setPrompt(value);
+    schedule(() => savePrompt(value));
   }
 
   async function markGenerated() {
@@ -307,7 +314,12 @@ function PackageCard({
           </div>
           <div className="aspect-video w-full overflow-hidden rounded-md border border-border bg-surface-2">
             {shot.keyframePath ? (
-              <img src={mediaUrl(shot.keyframePath)} alt="keyframe" className="h-full w-full object-cover" />
+              <ImageZoom
+                src={mediaUrl(shot.keyframePath)}
+                alt="keyframe"
+                caption={`Clip #${index} · keyframe`}
+                className="h-full w-full"
+              />
             ) : (
               <div className="flex h-full items-center justify-center p-2 text-center text-xs text-muted">
                 Genera el keyframe en la etapa «Planos»
@@ -370,7 +382,10 @@ function PackageCard({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="mb-0">Prompt para Gemini (image-to-video)</Label>
+            <div className="flex items-center gap-3">
+              <Label className="mb-0">Prompt para Gemini (image-to-video)</Label>
+              <SaveIndicator state={saveState} />
+            </div>
             <Button variant="ghost" size="sm" onClick={copy}>
               {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
               {copied ? "Copiado" : "Copiar"}
@@ -379,8 +394,7 @@ function PackageCard({
           <Textarea
             className="min-h-32 font-mono text-xs"
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onBlur={savePrompt}
+            onChange={(e) => onPromptChange(e.target.value)}
           />
 
           <div className="flex flex-wrap items-end gap-2 pt-1">
