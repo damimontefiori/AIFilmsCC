@@ -165,3 +165,38 @@ export function buildEncuadrePrompt(params: {
     .filter(Boolean)
     .join("\n");
 }
+
+/**
+ * Prompts (system+user) para ANALIZAR una imagen de referencia y redactar la
+ * "biblia de objetos" de una locación, ADAPTADA al estilo del film (no copia la
+ * imagen: la usa como inspiración). Lo consume el proveedor de visión.
+ */
+export function buildLocationBibleFromImage(params: {
+  name: string;
+  styleBible: string;
+  genre?: string;
+  tone?: string;
+  hint?: string;
+  language: string;
+}): { system: string; user: string } {
+  const lang = promptLangName(params.language);
+  const system = [
+    "Eres director de arte de cine. Observas una imagen de REFERENCIA y redactas la BIBLIA DE OBJETOS de una locación:",
+    "una descripción visual MUY detallada y FIJA del ambiente (arquitectura/espacio, materiales y colores, iluminación) y sobre todo los OBJETOS/props concretos (mobiliario, aparatos, decoración) con su aspecto exacto.",
+    `Escribe en ${lang}. Devuelve SOLO la descripción, sin encabezados ni comentarios.`,
+  ].join(" ");
+  const moodBits = [params.genre, params.tone].filter(Boolean).join(" · ");
+  const user = [
+    `Locación: ${params.name}.`,
+    params.hint ? `Idea del usuario para esta locación: ${params.hint}` : "",
+    "Usa la imagen SOLO como REFERENCIA de inspiración; NO la copies literalmente ni describas marcas de agua ni personas.",
+    params.styleBible
+      ? `ADAPTA la descripción al ESTILO VISUAL del film (paleta, iluminación, óptica, textura, época): ${params.styleBible}`
+      : "",
+    moodBits ? `Género/tono del film: ${moodBits}.` : "",
+    "Enriquece los detalles para que encajen en ese estilo, y define invariantes que NO deben cambiar entre tomas del mismo lugar.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { system, user };
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   MapPin,
@@ -10,6 +10,9 @@ import {
   Lock,
   Unlock,
   ImagePlus,
+  Upload,
+  Images,
+  Download,
   AlertCircle,
 } from "lucide-react";
 import type { LocationDTO } from "@/lib/dto";
@@ -19,12 +22,25 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input, Textarea, Label } from "@/components/ui/field";
 import { Badge, Spinner, SaveIndicator } from "@/components/ui/misc";
-import { ImageZoom } from "@/components/ui/modal";
+import { ImageZoom, Modal } from "@/components/ui/modal";
 import { FRAMING_TEMPLATES, FRAMING_PLACEHOLDER, FRAMING_HELP } from "@/lib/framings";
 
 function mediaUrl(path: string) {
   return `/api/media/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
+
+// Nombre de archivo legible para las descargas de imágenes de escenario.
+function slugName(s: string) {
+  return (
+    (s || "escenario")
+      .normalize("NFD")
+      .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "escenario"
+  );
+}
+const extFromPath = (p: string) => (p.split(".").pop() || "png").toLowerCase();
 
 export function LocationsManager({
   projectId,
@@ -149,7 +165,40 @@ function LocationCard({
   const [encBusy, setEncBusy] = useState<null | "new" | string>(null);
   const [newEncLabel, setNewEncLabel] = useState("");
   const [newEncFraming, setNewEncFraming] = useState("");
+  const [imgHint, setImgHint] = useState("");
+  const [busyImg, setBusyImg] = useState<null | "reference" | "canonical">(null);
+  const [encOpen, setEncOpen] = useState(false);
+  const imgRefA = useRef<HTMLInputElement>(null);
+  const imgRefB = useRef<HTMLInputElement>(null);
   const { state: saveState, schedule } = useAutosave();
+
+  // Sube una imagen con un PROPÓSITO explícito:
+  //  - "reference": la usa solo como referencia para redactar la biblia de objetos.
+  //  - "canonical": además la fija como Ambiente canónico del escenario.
+  async function onImage(e: React.ChangeEvent<HTMLInputElement>, mode: "reference" | "canonical") {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    setBusyImg(mode);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", mode);
+      if (imgHint.trim()) fd.append("hint", imgHint.trim());
+      const res = await fetch(`/api/projects/${projectId}/locations/${location.id}/from-image`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Error al analizar la imagen");
+      onPatchLocal(location.id, { description: data.description, imagePath: data.imagePath });
+    } catch (e2) {
+      setError(e2 instanceof Error ? e2.message : String(e2));
+    } finally {
+      setBusyImg(null);
+    }
+  }
 
   // Autoguardado (debounce) del nombre y la biblia de objetos.
   async function persist(next: { name: string; description: string }) {
@@ -238,7 +287,7 @@ function LocationCard({
     onRefetch();
   }
 
-  const busy = genning || encBusy !== null;
+  const busy = genning || encBusy !== null || busyImg !== null;
 
   return (
     <Card>
@@ -290,14 +339,25 @@ function LocationCard({
             <Label className="mb-0">Ambiente canónico</Label>
             {location.locked && <Badge tone="success">Bloqueado</Badge>}
           </div>
-          <div className="aspect-video w-full overflow-hidden rounded-md border border-border bg-surface-2">
+          <div className="group relative aspect-video w-full overflow-hidden rounded-md border border-border bg-surface-2">
             {location.imagePath ? (
-              <ImageZoom
-                src={mediaUrl(location.imagePath)}
-                alt={location.name}
-                caption={location.name}
-                className="h-full w-full"
-              />
+              <>
+                <ImageZoom
+                  src={mediaUrl(location.imagePath)}
+                  alt={location.name}
+                  caption={location.name}
+                  className="h-full w-full"
+                />
+                <a
+                  href={mediaUrl(location.imagePath)}
+                  download={`${slugName(location.name)}-ambiente.${extFromPath(location.imagePath)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Descargar imagen"
+                  className="absolute left-1 top-1 rounded-full bg-background/80 p-1 opacity-0 transition-opacity hover:bg-background group-hover:opacity-100"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </a>
+              </>
             ) : (
               <div className="flex h-full items-center justify-center p-2 text-center text-xs text-muted">
                 Sin imagen de ambiente
@@ -309,76 +369,138 @@ function LocationCard({
             {location.imagePath ? "Regenerar referencia" : "Generar referencia"}
           </Button>
 
-          {/* Encuadres: otras tomas del mismo lugar (general, cerrado, OTS…). */}
+          {/* Subir una imagen propia — el usuario elige el PROPÓSITO. */}
+          <div className="space-y-1.5 rounded-md border border-dashed border-border p-2">
+            <Label className="mb-0">O parte de una imagen tuya</Label>
+            <Input
+              className="h-7 text-xs"
+              value={imgHint}
+              onChange={(e) => setImgHint(e.target.value)}
+              placeholder="Idea para la biblia (opcional)"
+            />
+            <input ref={imgRefA} type="file" accept="image/*" className="hidden" onChange={(e) => onImage(e, "reference")} />
+            <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => imgRefA.current?.click()} disabled={busy}>
+              {busyImg === "reference" ? <Spinner /> : <Upload className="h-3 w-3" />} Analizar como referencia → biblia
+            </Button>
+            <input ref={imgRefB} type="file" accept="image/*" className="hidden" onChange={(e) => onImage(e, "canonical")} />
+            <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => imgRefB.current?.click()} disabled={busy}>
+              {busyImg === "canonical" ? <Spinner /> : <Upload className="h-3 w-3" />} Usar la imagen como ambiente
+            </Button>
+            <p className="text-[11px] text-muted">
+              <strong>Referencia:</strong> solo inspira la biblia (adaptada al estilo del film); no cambia la imagen del escenario. ·{" "}
+              <strong>Como ambiente:</strong> además fija esa imagen como el ambiente canónico.
+            </p>
+          </div>
+
+          {/* Encuadres: gestionados en un modal amplio (miniaturas grandes). */}
           <div className="space-y-1 border-t border-border pt-2">
-            <Label className="mb-0">Encuadres (tomas de este lugar)</Label>
+            <div className="flex items-center justify-between">
+              <Label className="mb-0">Encuadres (tomas de este lugar)</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEncOpen(true)}
+                disabled={!location.imagePath}
+              >
+                <Images className="h-3 w-3" />
+                {location.encuadres.length > 0 ? `Ver / crear (${location.encuadres.length})` : "Crear"}
+              </Button>
+            </div>
             {!location.imagePath && (
               <p className="text-[11px] text-muted">
                 Genera primero la referencia para poder crear encuadres.
               </p>
             )}
-            {location.encuadres.length > 0 && (
-              <div className="grid grid-cols-3 gap-1">
-                {location.encuadres.map((enc) => (
-                  <div key={enc.id} className="group relative overflow-hidden rounded border border-border">
-                    {enc.imagePath ? (
-                      <ImageZoom
-                        src={mediaUrl(enc.imagePath)}
-                        alt={enc.label}
-                        caption={`${location.name} · ${enc.label || "Encuadre"}`}
-                        className="aspect-video w-full"
-                      />
-                    ) : (
-                      <div className="flex aspect-video w-full items-center justify-center text-[9px] text-muted">—</div>
-                    )}
-                    <div className="truncate px-1 py-0.5 text-[9px]" title={enc.label}>{enc.label || "Encuadre"}</div>
-                    <button
-                      type="button"
-                      onClick={() => deleteEncuadre(enc.id)}
-                      disabled={busy}
-                      title="Eliminar encuadre"
-                      className="absolute right-0.5 top-0.5 rounded bg-background/70 p-0.5 opacity-0 group-hover:opacity-100"
-                    >
-                      {encBusy === enc.id ? <Spinner /> : <Trash2 className="h-3 w-3 text-danger" />}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {location.imagePath && (
-              <div className="space-y-1 rounded-md bg-surface-2 p-1.5">
-                <p className="text-[11px] text-muted">{FRAMING_HELP}</p>
+          </div>
+
+          <Modal
+            open={encOpen}
+            onClose={() => setEncOpen(false)}
+            title={`Encuadres · ${location.name}`}
+            className="max-w-3xl"
+          >
+            <div className="space-y-4">
+              {location.encuadres.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {location.encuadres.map((enc) => (
+                    <div key={enc.id} className="group relative overflow-hidden rounded-md border border-border">
+                      {enc.imagePath ? (
+                        <ImageZoom
+                          src={mediaUrl(enc.imagePath)}
+                          alt={enc.label}
+                          caption={`${location.name} · ${enc.label || "Encuadre"}`}
+                          className="aspect-video w-full"
+                        />
+                      ) : (
+                        <div className="flex aspect-video w-full items-center justify-center text-xs text-muted">—</div>
+                      )}
+                      <div className="truncate px-2 py-1 text-xs" title={enc.label}>
+                        {enc.label || "Encuadre"}
+                      </div>
+                      {enc.imagePath && (
+                        <a
+                          href={mediaUrl(enc.imagePath)}
+                          download={`${slugName(location.name)}-${slugName(enc.label || "encuadre")}.${extFromPath(enc.imagePath)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          title="Descargar encuadre"
+                          className="absolute left-1 top-1 rounded bg-background/80 p-1 opacity-0 transition-opacity hover:bg-background group-hover:opacity-100"
+                        >
+                          <Download className="h-4 w-4" />
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => deleteEncuadre(enc.id)}
+                        disabled={busy}
+                        title="Eliminar encuadre"
+                        className="absolute right-1 top-1 rounded bg-background/80 p-1 opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        {encBusy === enc.id ? <Spinner /> : <Trash2 className="h-4 w-4 text-danger" />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted">Aún no hay encuadres. Crea el primero abajo.</p>
+              )}
+
+              <div className="space-y-2 rounded-md border border-border bg-surface-2 p-3">
+                <p className="text-xs text-muted">{FRAMING_HELP}</p>
                 <Input
-                  className="h-7 text-xs"
                   value={newEncLabel}
                   onChange={(e) => setNewEncLabel(e.target.value)}
                   placeholder="Nombre corto para reconocerlo (p. ej. Acercamiento a la mesa)"
                 />
                 <div className="flex flex-wrap items-center gap-1">
-                  <span className="text-[10px] text-muted">Empezar con:</span>
-                  {FRAMING_TEMPLATES.map((t) => (
+                  <span className="text-xs text-muted">Empezar con:</span>
+                  {FRAMING_TEMPLATES.map((tpl) => (
                     <button
-                      key={t.label}
+                      key={tpl.label}
                       type="button"
-                      onClick={() => setNewEncFraming(t.text)}
-                      className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted hover:border-primary hover:text-primary"
+                      onClick={() => setNewEncFraming(tpl.text)}
+                      className="rounded-full border border-border px-2 py-0.5 text-xs text-muted hover:border-primary hover:text-primary"
                     >
-                      {t.label}
+                      {tpl.label}
                     </button>
                   ))}
                 </div>
                 <Textarea
-                  className="min-h-16 text-xs"
+                  className="min-h-20 text-sm"
                   value={newEncFraming}
                   onChange={(e) => setNewEncFraming(e.target.value)}
                   placeholder={FRAMING_PLACEHOLDER}
                 />
-                <Button variant="secondary" size="sm" className="w-full" onClick={createEncuadre} disabled={busy || !newEncFraming.trim()}>
-                  {encBusy === "new" ? <Spinner /> : <Plus className="h-3 w-3" />} Nuevo encuadre
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={createEncuadre}
+                  disabled={busy || !newEncFraming.trim()}
+                >
+                  {encBusy === "new" ? <Spinner /> : <Plus className="h-4 w-4" />} Nuevo encuadre
                 </Button>
               </div>
-            )}
-          </div>
+            </div>
+          </Modal>
         </div>
       </CardContent>
     </Card>
