@@ -87,6 +87,32 @@ export type AudioSettingsDTO = {
   audioVolume: number;
 };
 
+// ── Copiloto de IA ────────────────────────────────────────────────────────
+export type AgentTarget =
+  | "project"
+  | "character"
+  | "location"
+  | "scene"
+  | "shot"
+  | "script-beat";
+
+/** Propuesta de edición del copiloto (se aplica tras confirmación del usuario). */
+export type EditProposal = {
+  target: AgentTarget;
+  id: string | null; // null para el proyecto; id de la entidad para el resto
+  field: string;
+  value: unknown;
+  summary: string; // descripción legible del cambio
+};
+
+export type AgentMessageDTO = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  proposals: EditProposal[];
+  createdAt: string;
+};
+
 export type AccountDTO = {
   id: string;
   label: string;

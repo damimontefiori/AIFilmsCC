@@ -39,6 +39,24 @@ model Project {
   scenes        Scene[]
   exports       Export[]
   timelineClips TimelineClip[]
+  agentMessages AgentMessage[]
+}
+
+// Conversación del copiloto de IA, por proyecto. Persiste durante toda la
+// creación del film; el usuario puede reiniciarla (borra todos los mensajes).
+// `proposals` = JSON de las propuestas de edición sugeridas por el asistente
+// (cada una: target/id/field/value/summary); se aplican tras confirmación.
+model AgentMessage {
+  id        String   @id @default(cuid())
+  projectId String
+  role      String // user | assistant
+  content   String   @default("")
+  proposals String   @default("[]") // JSON: EditProposal[]
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }
 
 // Segmento de la línea de tiempo de montaje (EDL no destructiva). Cada segmento

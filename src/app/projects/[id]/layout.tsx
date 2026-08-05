@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getProject } from "@/lib/projects";
 import { PipelineNav } from "@/components/pipeline/pipeline-nav";
+import { FilmAgentPanel } from "@/components/pipeline/film-agent-panel";
 import { Badge } from "@/components/ui/misc";
 
 export default async function ProjectLayout({
@@ -40,6 +41,8 @@ export default async function ProjectLayout({
       <PipelineNav projectId={project.id} />
 
       <div>{children}</div>
+
+      <FilmAgentPanel projectId={project.id} />
     </div>
   );
 }
