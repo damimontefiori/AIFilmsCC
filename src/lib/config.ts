@@ -60,38 +60,57 @@ export function structuredReasoningConfig(): AzureTextConfig | null {
 }
 
 /**
- * Slot estructurado/JSON. Prioriza gpt-5.4-mini (razonamiento) y cae a gpt-4.1
- * (Accenture → Students) como respaldo.
+ * Slot estructurado de RESPALDO: otro gpt-5.4-mini (recurso DamiOpenAIText),
+ * endpoint clásico Responses (con api-version). Reintento cuando foundry-mini
+ * no está o falla.
+ */
+export function damiMiniConfig(): AzureTextConfig | null {
+  const endpoint = env("DAMI_MINI_ENDPOINT");
+  const key = env("DAMI_MINI_KEY");
+  if (!endpoint || !key) return null;
+  return {
+    label: "dami-mini",
+    endpoint,
+    key,
+    deployment: env("DAMI_MINI_DEPLOYMENT") || "gpt-5.4-mini",
+    apiVersion: env("DAMI_MINI_API_VERSION") || "2025-04-01-preview",
+    api: "responses",
+    reasoningEffort: "low",
+  };
+}
+
+/**
+ * Slot estructurado/JSON: gpt-5.4-mini con reintento en otro recurso.
+ * Cadena: foundry-mini → DamiOpenAIText (ambos gpt-5.4-mini). Sin gpt-4.1.
  */
 export function structuredTextConfigs(): AzureTextConfig[] {
   const configs: AzureTextConfig[] = [];
   const mini = structuredReasoningConfig();
   if (mini) configs.push(mini);
-  const accEndpoint = env("ACCENTURE_TEXT_ENDPOINT");
-  const accKey = env("ACCENTURE_TEXT_KEY");
-  if (accEndpoint && accKey) {
-    configs.push({
-      label: "accenture-gpt41",
-      endpoint: accEndpoint,
-      key: accKey,
-      deployment: env("ACCENTURE_GPT41_DEPLOYMENT") || "gpt-4.1",
-      apiVersion: env("ACCENTURE_TEXT_API_VERSION") || "2025-01-01-preview",
-      api: "chat",
-    });
-  }
-  const stuEndpoint = env("STUDENTS_TEXT_ENDPOINT");
-  const stuKey = env("STUDENTS_TEXT_KEY");
-  if (stuEndpoint && stuKey) {
-    configs.push({
-      label: "students-gpt41",
-      endpoint: stuEndpoint,
-      key: stuKey,
-      deployment: env("STUDENTS_GPT41_DEPLOYMENT") || "gpt-4.1",
-      apiVersion: env("STUDENTS_TEXT_API_VERSION") || "2025-01-01-preview",
-      api: "chat",
-    });
-  }
+  const dami = damiMiniConfig();
+  if (dami) configs.push(dami);
   return configs;
+}
+
+/**
+ * Grupo gpt-5.6 (Azure for Students, recurso jmontefioric-resource), endpoint
+ * v1 Responses. `sol` = guion; `luna` = resto (estructurado). SIN fallback: el
+ * llamador propaga el error si falla.
+ */
+export function solLunaConfig(kind: "sol" | "luna"): AzureTextConfig | null {
+  const up = kind.toUpperCase();
+  const endpoint = env(`${up}_ENDPOINT`);
+  const key = env(`${up}_KEY`);
+  if (!endpoint || !key) return null;
+  return {
+    label: kind,
+    endpoint, // v1 (termina en /responses); azure-openai lo usa tal cual
+    key,
+    deployment: env(`${up}_DEPLOYMENT`) || (kind === "sol" ? "gpt-5.6-sol" : "gpt-5.6-luna"),
+    apiVersion: "",
+    api: "responses",
+    reasoningEffort: kind === "sol" ? "medium" : "low",
+  };
 }
 
 export type GeminiImageConfig = {

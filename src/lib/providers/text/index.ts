@@ -1,6 +1,7 @@
 import {
   narrativeTextConfig,
   structuredTextConfigs,
+  solLunaConfig,
   defaultAiStudioKey,
   type AzureTextConfig,
 } from "@/lib/config";
@@ -54,6 +55,12 @@ export async function generateNarrative(
   choice?: TextModelChoice,
 ): Promise<GenerateResult> {
   await loadSettings();
+  // Grupo gpt-5.6: el guion usa "sol". SIN fallback (si falla, se propaga).
+  if (scriptModelById(choice?.model || "")?.provider === "azure-sol-luna") {
+    const cfg = solLunaConfig("sol");
+    if (!cfg) throw new Error("El modelo GPT-5.6 (Sol) no está configurado (revisa SOL_ENDPOINT/SOL_KEY).");
+    return runChain([cfg], params);
+  }
   try {
     const r = await tryAiStudio(choice, params);
     if (r) return r;
@@ -76,6 +83,12 @@ export async function generateStructured(
   choice?: TextModelChoice,
 ): Promise<GenerateResult> {
   await loadSettings();
+  // Grupo gpt-5.6: el resto usa "luna". SIN fallback (si falla, se propaga).
+  if (scriptModelById(choice?.model || "")?.provider === "azure-sol-luna") {
+    const cfg = solLunaConfig("luna");
+    if (!cfg) throw new Error("El modelo GPT-5.6 (Luna) no está configurado (revisa LUNA_ENDPOINT/LUNA_KEY).");
+    return runChain([cfg], params);
+  }
   try {
     const r = await tryAiStudio(choice, params);
     if (r) return r;
@@ -96,7 +109,7 @@ async function runChain(
 ): Promise<GenerateResult> {
   if (chain.length === 0) {
     throw new Error(
-      "No hay proveedores de texto configurados (revisa FOUNDRY_NARRATIVE_* / ACCENTURE_TEXT_* / STUDENTS_TEXT_*).",
+      "No hay proveedores de texto configurados (revisa FOUNDRY_NARRATIVE_* / FOUNDRY_MINI_* / DAMI_MINI_*).",
     );
   }
   const messages: ChatMessage[] = [

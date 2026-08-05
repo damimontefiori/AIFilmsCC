@@ -48,7 +48,10 @@ runtime, key-value). Campos array/objeto se guardan como **String JSON** → usa
 - **Shot.renderMode** = `composite` (insertar personas en el ambiente) | `direct`; `encuadreId`/`locationId` = overrides por plano.
 
 ## Proveedores de IA (failover)
-- **Texto**: el modelo elegido en el proyecto (`project.scriptModel`, vía `projectTextChoice`) gobierna **TODAS** las llamadas LLM del pipeline, no solo el guion. Con el modelo Azure por defecto: narrativo `gpt-5.4-pro` (Azure Responses, **puede tardar ~15 min**) para el guion; estructurado `gpt-5.4-mini` (Azure Responses, razonamiento ligero) → `gpt-4.1` (Accenture) → `gpt-4.1` (Students) para lo rápido (concepto, extracciones, planos, momento). Si se elige el modelo **Gemini AI Studio**, este se usa en **todo** el pipeline (guion + estructurado), no solo en el guion.
+- **Texto**: el modelo elegido en el proyecto (`project.scriptModel`, vía `projectTextChoice`) gobierna **TODAS** las llamadas LLM del pipeline, no solo el guion. Modelos seleccionables en Idea (`src/lib/pipeline/script-models.ts`):
+  - **`gpt-5.4-pro`** (por defecto, Azure Responses, **puede tardar ~15 min**): narrativo para el guion; estructurado (concepto, extracciones, planos, momento) = `gpt-5.4-mini` (foundry) → `gpt-5.4-mini` (DamiOpenAIText) como respaldo. **Sin gpt-4.1.**
+  - **Gemini AI Studio**: se usa en **todo** el pipeline (guion + estructurado).
+  - **`gpt-5.6` (Sol/Luna, Azure Students)**: `gpt-5.6-sol` para el guion y `gpt-5.6-luna` para el resto. **Sin fallback** (si falla, se informa el error).
 - **Imagen**: Gemini "Nano Banana" free → paid, luego FLUX.2-pro (Accenture) como fallback.
 - **Audio**: diferido (stubs Suno/ElevenLabs).
 - **Configuración en runtime**: la página `/settings` gestiona endpoints/modelos/keys por proveedor y un **playground** por modelo. Se guardan en `ProviderSetting` (DB) y **tienen prioridad sobre las variables de entorno** (`config.ts` lee `DB ?? env` vía la caché de `src/lib/settings.ts`; catálogo de slots en `src/lib/provider-catalog.ts`; ejecución por modelo en `src/lib/model-runner.ts`; API en `src/app/api/settings/**`). Las API keys **nunca** viajan al cliente sin enmascarar.

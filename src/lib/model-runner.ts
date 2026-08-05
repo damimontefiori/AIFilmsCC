@@ -4,7 +4,8 @@
 import {
   narrativeTextConfig,
   structuredReasoningConfig,
-  structuredTextConfigs,
+  damiMiniConfig,
+  solLunaConfig,
   geminiImageConfigs,
   fluxImageConfigs,
   aiStudioConfig,
@@ -23,10 +24,12 @@ function azureConfigFor(target: string): AzureTextConfig | null {
       return narrativeTextConfig();
     case "foundry-mini":
       return structuredReasoningConfig();
-    case "accenture-gpt41":
-      return structuredTextConfigs().find((c) => c.label === "accenture-gpt41") ?? null;
-    case "students-gpt41":
-      return structuredTextConfigs().find((c) => c.label === "students-gpt41") ?? null;
+    case "dami-mini":
+      return damiMiniConfig();
+    case "sol":
+      return solLunaConfig("sol");
+    case "luna":
+      return solLunaConfig("luna");
     default:
       return null;
   }

@@ -353,25 +353,23 @@ gobierna TODAS las llamadas LLM vía `projectTextChoice()`
 ([`model-choice.ts`](../src/lib/model-choice.ts)).
 
 ### Texto ([`providers/text/`](../src/lib/providers/text))
-Dos funciones de entrada:
-- **`generateNarrative`** (idea, guion): si el modelo elegido es AI Studio →
-  Gemini; si no (o si Gemini falla) → **narrativo Azure** (`gpt-5.4-pro`,
-  Responses API, razonamiento) → cadena estructurada.
+El modelo elegido en Idea (`SCRIPT_MODELS`) define el comportamiento. Dos funciones de entrada:
+- **`generateNarrative`** (idea, guion): AI Studio → Gemini; grupo **gpt-5.6** → `gpt-5.6-sol` (**sin fallback**); si no → **narrativo Azure** (`gpt-5.4-pro`, Responses, razonamiento) → cadena estructurada.
 - **`generateStructured`** (concepto, personajes, escenarios, planos, momento…):
-  AI Studio → Gemini; si no → **`gpt-5.4-mini`** (Responses, razonamiento ligero)
-  → **`gpt-4.1`** (Accenture) → **`gpt-4.1`** (Students).
+  AI Studio → Gemini; grupo **gpt-5.6** → `gpt-5.6-luna` (**sin fallback**); si no →
+  **`gpt-5.4-mini`** (foundry, Responses v1) → **`gpt-5.4-mini`** (DamiOpenAIText, Responses clásico) como respaldo. **Sin gpt-4.1.**
 
-`azure-openai.ts` despacha a **chat/completions** (gpt-4.1, `chat`) o a la
-**Responses API** (gpt-5.x, `responses`). Detalles importantes: los modelos de
-razonamiento gastan tokens "thinking", así que hay un **piso** de `max_output_tokens`
-(presupuestos pequeños devuelven vacío). El endpoint v1 (termina en `/responses`)
-se usa tal cual; el clásico construye `/openai/responses?api-version=`.
-`extractJson` tolera fences ```` ```json ```` y texto alrededor.
+`azure-openai.ts` despacha a **chat/completions** (`chat`) o a la **Responses API**
+(gpt-5.x, `responses`). Detalles: los modelos de razonamiento gastan tokens
+"thinking", así que hay un **piso** de `max_output_tokens`. El endpoint v1 (termina
+en `/responses`) se usa tal cual; el clásico construye `/openai/responses?api-version=`.
+`extractJson` tolera fences ```` ```json ````.
 
 > **Latencia**: el slot narrativo `gpt-5.4-pro` puede tardar **hasta ~15 min**.
-> Por eso `refineConcept`/tareas rápidas usan el slot **estructurado** (gpt-4.1 /
-> gpt-5.4-mini) y el razonamiento se reserva para el guion completo. Las rutas de
-> guion/autopilot ponen `maxDuration = 900`.
+> Por eso `refineConcept`/tareas rápidas usan el slot **estructurado** (gpt-5.4-mini)
+> y el razonamiento se reserva para el guion completo. Las rutas de guion/autopilot
+> ponen `maxDuration = 900`. El grupo **gpt-5.6** (Sol/Luna) no tiene fallback:
+> si falla (p. ej. sin crédito), el error se propaga para informarlo.
 
 ### Imagen ([`providers/image/`](../src/lib/providers/image))
 `generateImage()` ([index.ts](../src/lib/providers/image/index.ts)) hace failover:
@@ -455,9 +453,10 @@ Copiar [`.env.example`](../.env.example) a `.env.local` (nunca commitear claves)
 
 - **Texto narrativo** (`FOUNDRY_NARRATIVE_*`, `gpt-5.4-pro`, Responses).
 - **Texto estructurado por razonamiento** (`FOUNDRY_MINI_*`, `gpt-5.4-mini`,
-  endpoint v1 completo terminado en `/responses`).
-- **Texto estructurado/JSON** primario (`ACCENTURE_TEXT_*`, `gpt-4.1`) y fallback
-  (`STUDENTS_TEXT_*`).
+  endpoint v1 completo terminado en `/responses`) y su **respaldo**
+  (`DAMI_MINI_*`, otro `gpt-5.4-mini` en DamiOpenAIText, Responses clásico).
+- **Grupo GPT-5.6** (Azure Students, seleccionable en Idea): `SOL_*`
+  (`gpt-5.6-sol`, guion) y `LUNA_*` (`gpt-5.6-luna`, resto). Sin fallback.
 - **Imagen** Gemini (`GEMINI_FREE_API_KEY`, `GEMINI_PAID_API_KEY`,
   `GEMINI_IMAGE_MODEL`) y FLUX (`ACCENTURE_IMAGE_*`).
 - **Guion alternativo** Gemini AI Studio (`AISTUDIO_API_KEY`,
