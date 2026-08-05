@@ -50,16 +50,24 @@ async function tryAiStudio(
  * Texto narrativo/creativo (idea, guion). Con `choice` AI Studio → gemini;
  * si no (o si gemini falla) → Azure razonamiento (gpt-5.4-pro) → estructurado.
  */
+export type ReasoningEffort = NonNullable<AzureTextConfig["reasoningEffort"]>;
+
+/** Aplica un override de esfuerzo de razonamiento a un slot Azure Responses. */
+function withEffort(cfg: AzureTextConfig, effort?: ReasoningEffort): AzureTextConfig {
+  return effort && cfg.api === "responses" ? { ...cfg, reasoningEffort: effort } : cfg;
+}
+
 export async function generateNarrative(
   params: TextParams,
   choice?: TextModelChoice,
+  effort?: ReasoningEffort,
 ): Promise<GenerateResult> {
   await loadSettings();
   // Grupo gpt-5.6: el guion usa "sol". SIN fallback (si falla, se propaga).
   if (scriptModelById(choice?.model || "")?.provider === "azure-sol-luna") {
     const cfg = solLunaConfig("sol");
     if (!cfg) throw new Error("El modelo GPT-5.6 (Sol) no está configurado (revisa SOL_ENDPOINT/SOL_KEY).");
-    return runChain([cfg], params);
+    return runChain([withEffort(cfg, effort)], params);
   }
   try {
     const r = await tryAiStudio(choice, params);
@@ -69,7 +77,7 @@ export async function generateNarrative(
   }
   const chain: AzureTextConfig[] = [];
   const narrative = narrativeTextConfig();
-  if (narrative) chain.push(narrative);
+  if (narrative) chain.push(withEffort(narrative, effort)); // gpt-5.4-pro con el esfuerzo pedido
   chain.push(...structuredTextConfigs());
   return runChain(chain, params);
 }

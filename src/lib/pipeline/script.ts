@@ -1,4 +1,4 @@
-import { generateNarrative, extractJson } from "@/lib/providers/text";
+import { generateNarrative, extractJson, type ReasoningEffort } from "@/lib/providers/text";
 import { promptLangName } from "@/lib/languages";
 import { withRetry } from "@/lib/utils";
 import { DEFAULT_SCRIPT_MODEL } from "./script-models";
@@ -194,11 +194,13 @@ export async function callScriptModel(
   system: string,
   user: string,
   choice: ScriptModelChoice,
+  effort?: ReasoningEffort,
   maxTokens = 32768,
 ): Promise<string> {
   const r = await generateNarrative(
     { system, user, jsonMode: true, maxTokens },
     { model: choice.model || DEFAULT_SCRIPT_MODEL, apiKey: choice.apiKey },
+    effort,
   );
   return r.text;
 }
@@ -254,8 +256,10 @@ export async function reviewScript(
   ].join("\n");
 
   try {
+    // El "script doctor" corre con el modelo del proyecto al MÁXIMO razonamiento
+    // (Sol o gpt-5.4-pro → "high"; Gemini se usa tal cual, sin esfuerzo aplicable).
     const text = await withRetry(
-      () => callScriptModel(system, user, choice),
+      () => callScriptModel(system, user, choice, "high"),
       { attempts: 2 },
     );
     const doc = coerceScriptDoc(extractJson<unknown>(text), input);
