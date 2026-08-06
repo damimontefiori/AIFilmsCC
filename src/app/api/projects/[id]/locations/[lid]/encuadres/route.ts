@@ -5,6 +5,7 @@ import { getLocation, toEncuadreDTO } from "@/lib/locations";
 import { buildEncuadrePrompt } from "@/lib/pipeline/locations";
 import { generateImage } from "@/lib/providers/image";
 import { saveBase64Image, readMediaBase64 } from "@/lib/media/store";
+import { listImageVersions, mimeFromKey } from "@/lib/media/versions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,11 +34,22 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!framing) {
     return NextResponse.json({ error: "Describe la toma/encuadre" }, { status: 400 });
   }
+  const ref = await readMediaBase64(location.imagePath);
+  if (!ref) {
+    return NextResponse.json({ error: "No se pudo leer la referencia" }, { status: 400 });
+  }
+  // Crea la fila primero para poder nombrar los archivos por su id (historial
+  // aislado por encuadre: prefijo `enc-<eid>-`).
+  const count = await prisma.encuadre.count({ where: { locationId: lid } });
+  const encuadre = await prisma.encuadre.create({
+    data: {
+      locationId: lid,
+      label: label || framing.slice(0, 40),
+      framingPrompt: framing,
+      order: count,
+    },
+  });
   try {
-    const ref = await readMediaBase64(location.imagePath);
-    if (!ref) {
-      return NextResponse.json({ error: "No se pudo leer la referencia" }, { status: 400 });
-    }
     const prompt = buildEncuadrePrompt({
       locationName: location.name,
       bible: location.description,
@@ -47,28 +59,28 @@ export async function POST(req: Request, { params }: Ctx) {
     });
     const result = await generateImage({
       prompt,
-      referenceImages: [{ base64: ref.base64, mimeType: "image/png" }],
+      referenceImages: [{ base64: ref.base64, mimeType: mimeFromKey(location.imagePath) }],
       aspectRatio: project.aspectRatio,
     });
-    const count = await prisma.encuadre.count({ where: { locationId: lid } });
     const imagePath = await saveBase64Image(
       id,
       "keyframes",
-      `enc-${lid}-${Date.now()}`,
+      `enc-${encuadre.id}-${Date.now()}`,
       result.base64,
       result.mimeType,
     );
-    const encuadre = await prisma.encuadre.create({
-      data: {
-        locationId: lid,
-        label: label || framing.slice(0, 40),
-        framingPrompt: framing,
-        imagePath,
-        order: count,
-      },
+    const updated = await prisma.encuadre.update({
+      where: { id: encuadre.id },
+      data: { imagePath },
     });
-    return NextResponse.json({ encuadre: toEncuadreDTO(encuadre), provider: result.provider });
+    const versions = await listImageVersions(id, `enc-${encuadre.id}-`, imagePath);
+    return NextResponse.json({
+      encuadre: toEncuadreDTO(updated, versions),
+      provider: result.provider,
+    });
   } catch (err) {
+    // Rollback: sin imagen no dejamos un encuadre huérfano.
+    await prisma.encuadre.delete({ where: { id: encuadre.id } }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 500 },

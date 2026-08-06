@@ -14,8 +14,9 @@ import {
   Images,
   Download,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
-import type { LocationDTO } from "@/lib/dto";
+import type { LocationDTO, EncuadreDTO } from "@/lib/dto";
 import { jsonFetch } from "@/lib/api-client";
 import { useAutosave } from "@/lib/use-autosave";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,77 @@ function slugName(s: string) {
   );
 }
 const extFromPath = (p: string) => (p.split(".").pop() || "png").toLowerCase();
+
+/**
+ * Tira de versiones (historial) de una imagen: miniaturas con la actual
+ * resaltada; clic para usar una versión anterior; ✕ para borrarla. No muestra
+ * nada si solo existe la versión actual.
+ */
+function VersionStrip({
+  versions,
+  current,
+  busyKey,
+  disabled,
+  onSelect,
+  onDelete,
+}: {
+  versions: string[];
+  current: string | null;
+  busyKey: string | null;
+  disabled: boolean;
+  onSelect: (key: string) => void;
+  onDelete: (key: string) => void;
+}) {
+  if (!versions || versions.length < 2) return null;
+  return (
+    <div className="space-y-1">
+      <span className="text-[11px] text-muted">Versiones ({versions.length})</span>
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {versions.map((v) => {
+          const isCur = v === current;
+          const isBusy = busyKey === v;
+          return (
+            <div key={v} className="relative shrink-0">
+              <button
+                type="button"
+                disabled={disabled || isCur}
+                onClick={() => onSelect(v)}
+                title={isCur ? "Versión actual" : "Usar esta versión"}
+                className={`block h-12 w-16 overflow-hidden rounded border ${
+                  isCur
+                    ? "border-primary ring-1 ring-primary"
+                    : "border-border hover:border-primary disabled:opacity-100"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={mediaUrl(v)}
+                  alt=""
+                  draggable={false}
+                  className="pointer-events-none h-full w-full object-cover"
+                />
+              </button>
+              {isCur && (
+                <span className="absolute bottom-0 left-0 rounded-tr bg-primary px-1 text-[9px] leading-tight text-white">
+                  actual
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onDelete(v)}
+                title="Borrar versión"
+                className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full border border-border bg-background text-danger shadow-sm hover:bg-danger hover:text-white disabled:opacity-40"
+              >
+                {isBusy ? <Spinner /> : <Trash2 className="h-2.5 w-2.5" />}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function LocationsManager({
   projectId,
@@ -168,6 +240,12 @@ function LocationCard({
   const [imgHint, setImgHint] = useState("");
   const [busyImg, setBusyImg] = useState<null | "reference" | "canonical">(null);
   const [encOpen, setEncOpen] = useState(false);
+  // Corrección por instrucciones + historial (ambiente y encuadres).
+  const [imgInstruction, setImgInstruction] = useState("");
+  const [editingAmbient, setEditingAmbient] = useState(false);
+  const [versBusy, setVersBusy] = useState<string | null>(null);
+  const [encInstr, setEncInstr] = useState<Record<string, string>>({});
+  const [encEditing, setEncEditing] = useState<string | null>(null);
   const imgRefA = useRef<HTMLInputElement>(null);
   const imgRefB = useRef<HTMLInputElement>(null);
   const { state: saveState, schedule } = useAutosave();
@@ -192,7 +270,11 @@ function LocationCard({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error al analizar la imagen");
-      onPatchLocal(location.id, { description: data.description, imagePath: data.imagePath });
+      onPatchLocal(location.id, {
+        description: data.description,
+        imagePath: data.imagePath,
+        ...(Array.isArray(data.versions) ? { imageVersions: data.versions } : {}),
+      });
     } catch (e2) {
       setError(e2 instanceof Error ? e2.message : String(e2));
     } finally {
@@ -220,6 +302,12 @@ function LocationCard({
     };
     onPatchLocal(location.id, patch);
     schedule(() => persist(next));
+  }
+
+  function patchEnc(eid: string, patch: Partial<EncuadreDTO>) {
+    onPatchLocal(location.id, {
+      encuadres: location.encuadres.map((e) => (e.id === eid ? { ...e, ...patch } : e)),
+    });
   }
 
   async function createEncuadre() {
@@ -269,15 +357,121 @@ function LocationCard({
     setGenning(true);
     setError(null);
     try {
-      const res = await jsonFetch<{ location: LocationDTO }>(
+      const res = await jsonFetch<{ imagePath: string; versions: string[] }>(
         `/api/projects/${projectId}/locations/${location.id}/image`,
         { method: "POST" },
       );
-      onPatchLocal(location.id, { imagePath: res.location.imagePath });
+      onPatchLocal(location.id, { imagePath: res.imagePath, imageVersions: res.versions });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setGenning(false);
+    }
+  }
+
+  // ── Corrección del ambiente por instrucciones + historial ──────────────────
+  async function editAmbient() {
+    const instruction = imgInstruction.trim();
+    if (!instruction) return;
+    setEditingAmbient(true);
+    setError(null);
+    try {
+      const res = await jsonFetch<{ imagePath: string; versions: string[] }>(
+        `/api/projects/${projectId}/locations/${location.id}/image/edit`,
+        { method: "POST", body: JSON.stringify({ instruction }) },
+      );
+      onPatchLocal(location.id, { imagePath: res.imagePath, imageVersions: res.versions });
+      setImgInstruction("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEditingAmbient(false);
+    }
+  }
+
+  async function selectAmbientVersion(key: string) {
+    setVersBusy(key);
+    setError(null);
+    try {
+      const res = await jsonFetch<{ imagePath: string; versions: string[] }>(
+        `/api/projects/${projectId}/locations/${location.id}/image/versions`,
+        { method: "POST", body: JSON.stringify({ imagePath: key }) },
+      );
+      onPatchLocal(location.id, { imagePath: res.imagePath, imageVersions: res.versions });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVersBusy(null);
+    }
+  }
+
+  async function deleteAmbientVersion(key: string) {
+    if (!confirm("¿Borrar esta versión de la imagen? No se puede deshacer.")) return;
+    setVersBusy(key);
+    setError(null);
+    try {
+      const res = await jsonFetch<{ imagePath: string | null; versions: string[] }>(
+        `/api/projects/${projectId}/locations/${location.id}/image/versions`,
+        { method: "DELETE", body: JSON.stringify({ imagePath: key }) },
+      );
+      onPatchLocal(location.id, { imagePath: res.imagePath, imageVersions: res.versions });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVersBusy(null);
+    }
+  }
+
+  // ── Corrección/historial de encuadres ──────────────────────────────────────
+  async function editEnc(eid: string) {
+    const instruction = (encInstr[eid] || "").trim();
+    if (!instruction) return;
+    setEncEditing(eid);
+    setError(null);
+    try {
+      const res = await jsonFetch<{ imagePath: string; versions: string[] }>(
+        `/api/projects/${projectId}/locations/${location.id}/encuadres/${eid}/edit`,
+        { method: "POST", body: JSON.stringify({ instruction }) },
+      );
+      patchEnc(eid, { imagePath: res.imagePath, imageVersions: res.versions });
+      setEncInstr((s) => ({ ...s, [eid]: "" }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEncEditing(null);
+    }
+  }
+
+  async function selectEncVersion(eid: string, key: string) {
+    setVersBusy(key);
+    setError(null);
+    try {
+      const res = await jsonFetch<{ imagePath: string; versions: string[] }>(
+        `/api/projects/${projectId}/locations/${location.id}/encuadres/${eid}/versions`,
+        { method: "POST", body: JSON.stringify({ imagePath: key }) },
+      );
+      patchEnc(eid, { imagePath: res.imagePath, imageVersions: res.versions });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVersBusy(null);
+    }
+  }
+
+  async function deleteEncVersion(eid: string, key: string) {
+    if (!confirm("¿Borrar esta versión del encuadre? No se puede deshacer.")) return;
+    setVersBusy(key);
+    setError(null);
+    try {
+      const res = await jsonFetch<{ imagePath: string | null; versions: string[] }>(
+        `/api/projects/${projectId}/locations/${location.id}/encuadres/${eid}/versions`,
+        { method: "DELETE", body: JSON.stringify({ imagePath: key }) },
+      );
+      patchEnc(eid, { imagePath: res.imagePath, imageVersions: res.versions });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVersBusy(null);
     }
   }
 
@@ -287,7 +481,13 @@ function LocationCard({
     onRefetch();
   }
 
-  const busy = genning || encBusy !== null || busyImg !== null;
+  const busy =
+    genning ||
+    encBusy !== null ||
+    busyImg !== null ||
+    editingAmbient ||
+    versBusy !== null ||
+    encEditing !== null;
 
   return (
     <Card>
@@ -369,6 +569,48 @@ function LocationCard({
             {location.imagePath ? "Regenerar referencia" : "Generar referencia"}
           </Button>
 
+          {/* Corregir el ambiente con instrucciones (edición dirigida) + historial. */}
+          {location.imagePath && (
+            <div className="space-y-1.5 rounded-md border border-border p-2">
+              <Label className="mb-0">Corregir con instrucciones</Label>
+              <div className="flex gap-1">
+                <Input
+                  className="h-7 text-xs"
+                  value={imgInstruction}
+                  onChange={(e) => setImgInstruction(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      editAmbient();
+                    }
+                  }}
+                  placeholder="p. ej. elimina a la persona, agranda la lámpara…"
+                  disabled={busy}
+                />
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  onClick={editAmbient}
+                  disabled={busy || !imgInstruction.trim()}
+                  title="Aplicar corrección"
+                >
+                  {editingAmbient ? <Spinner /> : <Sparkles className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted">
+                Edita la imagen actual conservando el resto. Cada corrección crea una versión nueva.
+              </p>
+              <VersionStrip
+                versions={location.imageVersions}
+                current={location.imagePath}
+                busyKey={versBusy}
+                disabled={busy}
+                onSelect={selectAmbientVersion}
+                onDelete={deleteAmbientVersion}
+              />
+            </div>
+          )}
+
           {/* Subir una imagen propia — el usuario elige el PROPÓSITO. */}
           <div className="space-y-1.5 rounded-md border border-dashed border-border p-2">
             <Label className="mb-0">O parte de una imagen tuya</Label>
@@ -423,40 +665,79 @@ function LocationCard({
               {location.encuadres.length > 0 ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {location.encuadres.map((enc) => (
-                    <div key={enc.id} className="group relative overflow-hidden rounded-md border border-border">
-                      {enc.imagePath ? (
-                        <ImageZoom
-                          src={mediaUrl(enc.imagePath)}
-                          alt={enc.label}
-                          caption={`${location.name} · ${enc.label || "Encuadre"}`}
-                          className="aspect-video w-full"
-                        />
-                      ) : (
-                        <div className="flex aspect-video w-full items-center justify-center text-xs text-muted">—</div>
-                      )}
-                      <div className="truncate px-2 py-1 text-xs" title={enc.label}>
+                    <div key={enc.id} className="space-y-1.5 rounded-md border border-border p-1.5">
+                      <div className="group relative overflow-hidden rounded">
+                        {enc.imagePath ? (
+                          <ImageZoom
+                            src={mediaUrl(enc.imagePath)}
+                            alt={enc.label}
+                            caption={`${location.name} · ${enc.label || "Encuadre"}`}
+                            className="aspect-video w-full"
+                          />
+                        ) : (
+                          <div className="flex aspect-video w-full items-center justify-center text-xs text-muted">—</div>
+                        )}
+                        {enc.imagePath && (
+                          <a
+                            href={mediaUrl(enc.imagePath)}
+                            download={`${slugName(location.name)}-${slugName(enc.label || "encuadre")}.${extFromPath(enc.imagePath)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Descargar encuadre"
+                            className="absolute left-1 top-1 rounded bg-background/80 p-1 opacity-0 transition-opacity hover:bg-background group-hover:opacity-100"
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => deleteEncuadre(enc.id)}
+                          disabled={busy}
+                          title="Eliminar encuadre"
+                          className="absolute right-1 top-1 rounded bg-background/80 p-1 opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          {encBusy === enc.id ? <Spinner /> : <Trash2 className="h-4 w-4 text-danger" />}
+                        </button>
+                      </div>
+                      <div className="truncate text-xs" title={enc.label}>
                         {enc.label || "Encuadre"}
                       </div>
                       {enc.imagePath && (
-                        <a
-                          href={mediaUrl(enc.imagePath)}
-                          download={`${slugName(location.name)}-${slugName(enc.label || "encuadre")}.${extFromPath(enc.imagePath)}`}
-                          onClick={(e) => e.stopPropagation()}
-                          title="Descargar encuadre"
-                          className="absolute left-1 top-1 rounded bg-background/80 p-1 opacity-0 transition-opacity hover:bg-background group-hover:opacity-100"
-                        >
-                          <Download className="h-4 w-4" />
-                        </a>
+                        <>
+                          <div className="flex gap-1">
+                            <Input
+                              className="h-6 text-[11px]"
+                              value={encInstr[enc.id] || ""}
+                              onChange={(e) => setEncInstr((s) => ({ ...s, [enc.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  editEnc(enc.id);
+                                }
+                              }}
+                              placeholder="Corregir…"
+                              disabled={busy}
+                            />
+                            <Button
+                              size="icon"
+                              variant="secondary"
+                              className="h-6 w-6 shrink-0"
+                              onClick={() => editEnc(enc.id)}
+                              disabled={busy || !(encInstr[enc.id] || "").trim()}
+                              title="Aplicar corrección"
+                            >
+                              {encEditing === enc.id ? <Spinner /> : <Sparkles className="h-3 w-3" />}
+                            </Button>
+                          </div>
+                          <VersionStrip
+                            versions={enc.imageVersions}
+                            current={enc.imagePath}
+                            busyKey={versBusy}
+                            disabled={busy}
+                            onSelect={(k) => selectEncVersion(enc.id, k)}
+                            onDelete={(k) => deleteEncVersion(enc.id, k)}
+                          />
+                        </>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => deleteEncuadre(enc.id)}
-                        disabled={busy}
-                        title="Eliminar encuadre"
-                        className="absolute right-1 top-1 rounded bg-background/80 p-1 opacity-0 transition-opacity group-hover:opacity-100"
-                      >
-                        {encBusy === enc.id ? <Spinner /> : <Trash2 className="h-4 w-4 text-danger" />}
-                      </button>
                     </div>
                   ))}
                 </div>

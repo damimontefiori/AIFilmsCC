@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "node:fs";
 import { prisma } from "@/lib/db";
 import { getProject } from "@/lib/projects";
 import { getLocation } from "@/lib/locations";
 import { buildLocationBibleFromImage } from "@/lib/pipeline/locations";
 import { describeImage } from "@/lib/providers/vision";
 import { saveBuffer } from "@/lib/media/store";
-import { fromRelative } from "@/lib/paths";
+import { listImageVersions } from "@/lib/media/versions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,20 +66,19 @@ export async function POST(req: Request, { params }: Ctx) {
       description: text,
     };
     if (mode === "canonical") {
+      // Se guarda como una NUEVA versión del ambiente (no se borra la anterior:
+      // el historial se conserva; el usuario puede volver a versiones previas).
       const relKey = await saveBuffer(id, "keyframes", `loc-${lid}-${Date.now()}.${extFor(mimeType)}`, buf);
-      // Borra la imagen anterior de la locación (best-effort).
-      if (location.imagePath && location.imagePath !== relKey) {
-        const oldAbs = fromRelative(location.imagePath);
-        if (oldAbs) await fs.rm(oldAbs, { force: true }).catch(() => {});
-      }
       data.imagePath = relKey;
       data.imagePrompt = "(imagen subida por el usuario)";
     }
 
     const updated = await prisma.location.update({ where: { id: lid }, data });
+    const versions = await listImageVersions(id, `loc-${lid}-`, updated.imagePath);
     return NextResponse.json({
       description: updated.description,
       imagePath: updated.imagePath,
+      versions,
       provider,
       mode,
     });

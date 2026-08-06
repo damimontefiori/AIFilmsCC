@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { LocationDTO, EncuadreDTO } from "@/lib/dto";
+import { readKeyframeFiles, versionsFromFiles } from "@/lib/media/versions";
 
 type EncuadreRow = {
   id: string;
@@ -21,7 +22,12 @@ type LocationRow = {
   encuadres?: EncuadreRow[];
 };
 
-export function toEncuadreDTO(e: EncuadreRow): EncuadreDTO {
+/** Fallback de historial cuando no se pasa el listado del disco: solo la actual. */
+function soloActual(imagePath: string | null): string[] {
+  return imagePath ? [imagePath] : [];
+}
+
+export function toEncuadreDTO(e: EncuadreRow, imageVersions?: string[]): EncuadreDTO {
   return {
     id: e.id,
     locationId: e.locationId,
@@ -29,10 +35,19 @@ export function toEncuadreDTO(e: EncuadreRow): EncuadreDTO {
     framingPrompt: e.framingPrompt,
     imagePath: e.imagePath,
     order: e.order,
+    imageVersions: imageVersions ?? soloActual(e.imagePath),
   };
 }
 
-export function toLocationDTO(l: LocationRow): LocationDTO {
+export function toLocationDTO(l: LocationRow, projectFiles?: string[]): LocationDTO {
+  const encuadres = (l.encuadres ?? []).map((e) =>
+    toEncuadreDTO(
+      e,
+      projectFiles
+        ? versionsFromFiles(projectFiles, l.projectId, `enc-${e.id}-`, e.imagePath)
+        : undefined,
+    ),
+  );
   return {
     id: l.id,
     projectId: l.projectId,
@@ -41,17 +56,23 @@ export function toLocationDTO(l: LocationRow): LocationDTO {
     imagePath: l.imagePath,
     locked: l.locked,
     order: l.order,
-    encuadres: (l.encuadres ?? []).map(toEncuadreDTO),
+    encuadres,
+    imageVersions: projectFiles
+      ? versionsFromFiles(projectFiles, l.projectId, `loc-${l.id}-`, l.imagePath)
+      : soloActual(l.imagePath),
   };
 }
 
 export async function listLocations(projectId: string): Promise<LocationDTO[]> {
-  const rows = await prisma.location.findMany({
-    where: { projectId },
-    orderBy: { order: "asc" },
-    include: { encuadres: { orderBy: { order: "asc" } } },
-  });
-  return rows.map(toLocationDTO);
+  const [rows, files] = await Promise.all([
+    prisma.location.findMany({
+      where: { projectId },
+      orderBy: { order: "asc" },
+      include: { encuadres: { orderBy: { order: "asc" } } },
+    }),
+    readKeyframeFiles(projectId),
+  ]);
+  return rows.map((l) => toLocationDTO(l, files));
 }
 
 export function getLocation(id: string) {

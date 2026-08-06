@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { promises as fs } from "node:fs";
 import { prisma } from "@/lib/db";
 import { fromRelative } from "@/lib/paths";
-import { promises as fs } from "node:fs";
+import { deleteAllVersions } from "@/lib/media/versions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,11 +26,22 @@ export async function PATCH(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
-  const { lid } = await params;
-  const location = await prisma.location.findUnique({ where: { id: lid } });
-  if (location?.imagePath) {
-    const abs = fromRelative(location.imagePath);
-    if (abs) await fs.rm(abs, { force: true }).catch(() => {});
+  const { id, lid } = await params;
+  const location = await prisma.location.findUnique({
+    where: { id: lid },
+    include: { encuadres: true },
+  });
+  if (location) {
+    // Borra TODO el historial del ambiente y de cada encuadre (no solo la actual).
+    await deleteAllVersions(id, `loc-${lid}-`);
+    for (const enc of location.encuadres) {
+      await deleteAllVersions(id, `enc-${enc.id}-`);
+      // Encuadres con nombre de esquema previo (no cubiertos por el prefijo eid).
+      if (enc.imagePath) {
+        const abs = fromRelative(enc.imagePath);
+        if (abs) await fs.rm(abs, { force: true }).catch(() => {});
+      }
+    }
   }
   await prisma.location.delete({ where: { id: lid } }).catch(() => {});
   return NextResponse.json({ ok: true });

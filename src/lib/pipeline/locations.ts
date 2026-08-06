@@ -167,6 +167,29 @@ export function buildEncuadrePrompt(params: {
 }
 
 /**
+ * Prompt para EDITAR una imagen ya generada con una instrucción en lenguaje
+ * natural ("agranda la lámpara", "elimina a la persona de la derecha", "aleja
+ * el sofá de la mesa"). La imagen actual viaja como lienzo (baseImage); este
+ * prompt pide un cambio DIRIGIDO conservando todo lo demás idéntico.
+ */
+export function buildImageEditPrompt(params: {
+  instruction: string;
+  styleBible: string;
+  aspectRatio: string;
+}): string {
+  return [
+    `Edit the attached image. Apply ONLY the requested change below and keep EVERYTHING else identical — same location, same objects, same camera angle/composition, same ${params.aspectRatio} aspect ratio, same lighting and style. Do NOT regenerate or restyle the whole scene; make a targeted, photorealistic edit that blends seamlessly.`,
+    `REQUESTED CHANGE: ${params.instruction}`,
+    "Keep the scene free of people unless the change explicitly asks to add someone.",
+    params.styleBible ? `Preserve the film's visual style: ${params.styleBible}` : "",
+    REALISM_DIRECTIVE,
+    `No text, no watermark, no logos. Family-friendly. Avoid: ${SAFE_NEGATIVES}.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
  * Prompts (system+user) para ANALIZAR una imagen de referencia y redactar la
  * "biblia de objetos" de una locación, ADAPTADA al estilo del film (no copia la
  * imagen: la usa como inspiración). Lo consume el proveedor de visión.

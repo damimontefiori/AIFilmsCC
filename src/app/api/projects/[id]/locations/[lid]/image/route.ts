@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getProject } from "@/lib/projects";
-import { getLocation, toLocationDTO } from "@/lib/locations";
+import { getLocation } from "@/lib/locations";
 import { buildLocationPrompt } from "@/lib/pipeline/locations";
 import { generateImage } from "@/lib/providers/image";
 import { saveBase64Image } from "@/lib/media/store";
-import { fromRelative } from "@/lib/paths";
-import { promises as fs } from "node:fs";
+import { listImageVersions } from "@/lib/media/versions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +28,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       aspectRatio: project.aspectRatio,
     });
     const result = await generateImage({ prompt, aspectRatio: project.aspectRatio });
+    // Se guarda como una NUEVA versión (no se borra la anterior: historial).
     const imagePath = await saveBase64Image(
       id,
       "keyframes",
@@ -36,16 +36,9 @@ export async function POST(_req: Request, { params }: Ctx) {
       result.base64,
       result.mimeType,
     );
-    // Borra la imagen anterior de la locación.
-    if (location.imagePath && location.imagePath !== imagePath) {
-      const oldAbs = fromRelative(location.imagePath);
-      if (oldAbs) await fs.rm(oldAbs, { force: true }).catch(() => {});
-    }
-    const updated = await prisma.location.update({
-      where: { id: lid },
-      data: { imagePath, imagePrompt: prompt },
-    });
-    return NextResponse.json({ location: toLocationDTO(updated), provider: result.provider });
+    await prisma.location.update({ where: { id: lid }, data: { imagePath, imagePrompt: prompt } });
+    const versions = await listImageVersions(id, `loc-${lid}-`, imagePath);
+    return NextResponse.json({ imagePath, versions, provider: result.provider });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

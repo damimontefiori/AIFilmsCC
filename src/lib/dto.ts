@@ -23,6 +23,7 @@ export type EncuadreDTO = {
   framingPrompt: string;
   imagePath: string | null;
   order: number;
+  imageVersions: string[]; // historial (claves rel), más recientes primero
 };
 
 export type LocationDTO = {
@@ -34,6 +35,7 @@ export type LocationDTO = {
   locked: boolean;
   order: number;
   encuadres: EncuadreDTO[];
+  imageVersions: string[]; // historial del ambiente canónico, más recientes primero
 };
 
 export type ShotDTO = {
